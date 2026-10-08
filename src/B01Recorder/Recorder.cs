@@ -34,7 +34,7 @@ internal sealed class Recorder : IDisposable
             var path = Path.Combine(folder.Trim('"'), "ffmpeg.exe");
             if (File.Exists(path)) return path;
         }
-        throw new FileNotFoundException("FFmpeg was not found. Use the FFmpeg button to select ffmpeg.exe.");
+        throw new FileNotFoundException("FFmpeg was not found. Run Install-FFmpeg.cmd from the app folder, or place ffmpeg.exe beside b01-recorder.exe.");
     }
 
     public async Task StartAsync(RecordingOptions value)

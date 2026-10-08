@@ -21,10 +21,11 @@ A minimal screen recorder for Windows. Capture your full screen, a window, or a 
 ## Getting started
 
 1. Download the ZIP from the latest release and extract it.
-2. Run `b01-recorder.exe`. Keep the included `ffmpeg.exe` and `ffprobe.exe` in the same folder.
-3. Choose `Full screen`, `Window`, or `Region`, then select your capture target.
-4. Set the output format, frame rate, quality, and output folder. Recordings save to your Desktop by default.
-5. Click `Record` to start. The same button changes to `Stop & save`; click it to finish and save.
+2. Run `Install-FFmpeg.cmd` to download FFmpeg directly from its distributor. The script verifies the download before placing `ffmpeg.exe` and `ffprobe.exe` beside the app. Alternatively, download the [essentials build](https://www.gyan.dev/ffmpeg/builds/) yourself and copy those two files into the app folder.
+3. Run `b01-recorder.exe`.
+4. Choose `Full screen`, `Window`, or `Region`, then select your capture target.
+5. Set the output format, frame rate, quality, and output folder. Recordings save to your Desktop by default.
+6. Click `Record` to start. The same button changes to `Stop & save`; click it to finish and save.
 
 **Selecting a capture target does not start recording.** The app stays visible when recording begins.
 
@@ -32,7 +33,7 @@ Select a thumbnail to preview a saved recording. Use `Play in app` for in-app pl
 
 ## Requirements and storage
 
-Supports Windows 10/11 **x64**. The .NET runtime and FFmpeg are included. In-app previews require [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+Supports Windows 10/11 **x64**. The .NET runtime is included. FFmpeg is obtained separately using the setup step above. In-app previews require [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
 
 | Item | Location |
 | --- | --- |
