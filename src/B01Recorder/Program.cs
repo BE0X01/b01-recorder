@@ -6,6 +6,7 @@ internal static class Program
     private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+        if (args.Contains("--verify-ui")) { UiVerification.Run(); return; }
         if (args.Contains("--verify") || args.Contains("--preview"))
         {
             Verification.Run(args.Contains("--preview"));

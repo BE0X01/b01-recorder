@@ -18,7 +18,18 @@ internal static class Windows
     [DllImport("user32.dll")] internal static extern bool IsIconic(nint handle);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(nint handle, StringBuilder text, int count);
     [DllImport("user32.dll")] private static extern bool GetClientRect(nint handle, out NativeRect rect);
+    [DllImport("user32.dll")] private static extern bool ClientToScreen(nint handle, ref Point point);
+    [DllImport("user32.dll", SetLastError = true)] internal static extern bool SetWindowDisplayAffinity(nint handle, uint affinity);
     [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
+    internal static bool TryGetClientBounds(nint handle, out Rectangle bounds)
+    {
+        bounds = Rectangle.Empty;
+        if (!IsWindow(handle) || IsIconic(handle) || !GetClientRect(handle, out var rect)) return false;
+        var point = Point.Empty;
+        if (!ClientToScreen(handle, ref point)) return false;
+        bounds = new(point, new Size(rect.Right, rect.Bottom));
+        return bounds.Width > 1 && bounds.Height > 1;
+    }
     internal static List<CaptureTarget> List(nint ownHandle)
     {
         var result = new List<CaptureTarget>();
@@ -27,8 +38,8 @@ internal static class Windows
             if (handle == ownHandle || !IsWindowVisible(handle) || IsIconic(handle)) return true;
             var title = new StringBuilder(512);
             GetWindowText(handle, title, title.Capacity);
-            if (title.Length > 0 && GetClientRect(handle, out var r) && r.Right > 1 && r.Bottom > 1)
-                result.Add(new(title.ToString(), new(0, 0, r.Right, r.Bottom), handle));
+            if (title.Length > 0 && TryGetClientBounds(handle, out var bounds))
+                result.Add(new(title.ToString(), bounds, handle));
             return true;
         }, 0);
         return result.OrderBy(t => t.Label).ToList();
@@ -37,6 +48,7 @@ internal static class Windows
 
 internal sealed class RegionPicker : Form
 {
+    private readonly Bitmap snapshot;
     private Point? origin;
     private Rectangle selection;
     public Rectangle SelectedBounds { get; private set; }
@@ -45,8 +57,9 @@ internal sealed class RegionPicker : Form
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
         Bounds = SystemInformation.VirtualScreen;
-        BackColor = Color.FromArgb(20, 25, 35);
-        Opacity = .35;
+        snapshot = new Bitmap(Bounds.Width, Bounds.Height);
+        using (var graphics = Graphics.FromImage(snapshot)) graphics.CopyFromScreen(Bounds.Location, Point.Empty, Bounds.Size);
+        BackColor = Theme.Background;
         TopMost = true;
         ShowInTaskbar = false;
         DoubleBuffered = true;
@@ -73,10 +86,14 @@ internal sealed class RegionPicker : Form
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
-        using var pen = new Pen(Color.White, 3);
+        e.Graphics.DrawImageUnscaled(snapshot, Point.Empty);
+        using var pen = new Pen(Theme.Accent, 3);
         e.Graphics.DrawRectangle(pen, selection);
-        using var font = new Font("맑은 고딕", 18);
-        e.Graphics.DrawString("드래그해서 영역 선택  ·  Esc 취소", font, Brushes.White, 30, 30);
+        using var font = new Font("Segoe UI", 14);
+        using var brush = new SolidBrush(Theme.Background);
+        e.Graphics.FillRectangle(brush, 20, 20, 425, 38);
+        e.Graphics.DrawString("Drag to select a region  ·  Esc to cancel", font, Brushes.White, 30, 26);
         if (selection.Width > 0) e.Graphics.DrawString($"{selection.Width} × {selection.Height}", font, Brushes.White, selection.Left + 8, selection.Top + 8);
     }
+    protected override void Dispose(bool disposing) { if (disposing) snapshot.Dispose(); base.Dispose(disposing); }
 }
