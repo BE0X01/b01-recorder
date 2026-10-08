@@ -33,7 +33,9 @@ Copy-Item -LiteralPath (Join-Path $taskRuntimeRoot.FullName 'LICENSE.TXT') -Dest
 Copy-Item -LiteralPath (Join-Path $taskRuntimeRoot.FullName 'THIRD-PARTY-NOTICES.TXT') -Destination (Join-Path $taskLicenses 'dotnet-ThirdPartyNotices.txt')
 Copy-Item -LiteralPath (Join-Path $taskPackageRoot 'microsoft.web.webview2/1.0.4258.31/LICENSE.txt') -Destination (Join-Path $taskLicenses 'WebView2-LICENSE.txt')
 Copy-Item -LiteralPath (Join-Path $taskPackageRoot 'microsoft.web.webview2/1.0.4258.31/NOTICE.txt') -Destination (Join-Path $taskLicenses 'WebView2-NOTICE.txt')
-$taskFiles = @('b01-recorder.exe', 'ffmpeg.exe', 'ffprobe.exe', 'README.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'licenses') | ForEach-Object { Join-Path $taskBundle $_ }
+# FFmpeg is kept in the local development folder, but is never bundled for distribution.
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Install-FFmpeg.ps1'), (Join-Path $PSScriptRoot 'Install-FFmpeg.cmd') -Destination $taskBundle
+$taskFiles = @('b01-recorder.exe', 'Install-FFmpeg.ps1', 'Install-FFmpeg.cmd', 'README.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'licenses') | ForEach-Object { Join-Path $taskBundle $_ }
 $taskZip = Join-Path $taskRoot "artifacts/b01-recorder-v$taskVersion-win-x64.zip"
 Compress-Archive -LiteralPath $taskFiles -DestinationPath $taskZip -Force
 $taskDigest = (Get-FileHash -LiteralPath $taskZip -Algorithm SHA256).Hash.ToLowerInvariant()
