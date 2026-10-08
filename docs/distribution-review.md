@@ -14,8 +14,11 @@ Scope: public repository main branch, Version 0.1/0.2 release assets, resolved N
 - Public main matched the local reviewed commit before changes. GitHub recognizes the project license as MIT.
 - Resolved packages: NAudio, NAudio.Asio, NAudio.Core, NAudio.Midi, NAudio.Wasapi, NAudio.WinForms, NAudio.WinMM (2.2.1), and Microsoft.Web.WebView2 (1.0.4258.31).
 - NAudio MIT, .NET license/third-party notices, and WebView2 SDK license/notice files are retained in the corrected packages.
+- NuGet vulnerability query (`dotnet list package --vulnerable --include-transitive --no-restore`) completed against the configured sources and reported no vulnerable resolved packages. This does not scan the .NET runtime, FFmpeg, WebView2 Runtime, or every possible security issue.
 - No matches for common GitHub token or private-key-header patterns in tracked files. This limited check does not prove the absence of all secrets.
 - Original release assets are backed up locally before replacement. Replacement checksums are generated and compared to GitHub's uploaded asset digests.
+- A direct supplier download was checksum-verified and installed successfully in an isolated folder. A corrupt archive was rejected before executables were installed.
+- Corrected ZIPs were checked for required license files and setup scripts, with FFmpeg and FFprobe binaries absent.
 - The existing historical source tags remain unchanged; the correction commit is linked from both release notes.
 
 References:
