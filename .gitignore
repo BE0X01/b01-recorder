@@ -3,3 +3,6 @@ obj/
 artifacts/
 .tools/
 *.user
+*.lnk
+setting.ini
+data/

@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from PIL import Image
 
-folder = Path(sys.argv[1] if len(sys.argv) > 1 else "artifacts/b01-recorder-v0.1-win-x64/verification")
+folder = Path(sys.argv[1] if len(sys.argv) > 1 else "artifacts/b01-recorder-v0.2-win-x64/verification")
 results = []
 for item in json.loads((folder / "results.json").read_text(encoding="utf-8")):
     if item["format"] not in ("GIF", "WEBP"):

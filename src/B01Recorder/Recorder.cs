@@ -24,7 +24,7 @@ internal sealed class Recorder : IDisposable
     {
         if (!string.IsNullOrWhiteSpace(custom))
         {
-            if (!File.Exists(custom)) throw new FileNotFoundException("지정한 FFmpeg 파일이 없습니다.", custom);
+            if (!File.Exists(custom)) throw new FileNotFoundException("The selected FFmpeg executable does not exist.", custom);
             return Path.GetFullPath(custom);
         }
         foreach (var path in new[] { Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe"), Path.Combine(AppContext.BaseDirectory, "tools", "ffmpeg.exe") })
@@ -34,15 +34,15 @@ internal sealed class Recorder : IDisposable
             var path = Path.Combine(folder.Trim('"'), "ffmpeg.exe");
             if (File.Exists(path)) return path;
         }
-        throw new FileNotFoundException("FFmpeg를 찾을 수 없습니다. FFmpeg 선택 버튼으로 ffmpeg.exe를 지정하세요.");
+        throw new FileNotFoundException("FFmpeg was not found. Use the FFmpeg button to select ffmpeg.exe.");
     }
 
     public async Task StartAsync(RecordingOptions value)
     {
-        if (process is not null) throw new InvalidOperationException("이미 녹화 중입니다.");
+        if (process is not null) throw new InvalidOperationException("Recording is already in progress.");
         if (value.Target.IsWindow && (!Windows.IsWindow(value.Target.Handle) || Windows.IsIconic(value.Target.Handle)))
-            throw new InvalidOperationException("선택한 창이 닫혔거나 최소화되었습니다. 창을 다시 선택하세요.");
-        if (value.Target.Bounds.Width < 16 || value.Target.Bounds.Height < 16) throw new InvalidOperationException("녹화 영역이 너무 작습니다.");
+            throw new InvalidOperationException("The selected window is closed or minimized. Select a visible window.");
+        if (value.Target.Bounds.Width < 16 || value.Target.Bounds.Height < 16) throw new InvalidOperationException("The recording region is too small.");
         options = value;
         Directory.CreateDirectory(value.Folder);
         session = Path.Combine(value.Folder, $".b01-session-{Guid.NewGuid():N}");
@@ -69,7 +69,7 @@ internal sealed class Recorder : IDisposable
             });
             var winner = await Task.WhenAny(firstFrame.Task, process.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(15)));
             if (winner != firstFrame.Task || process.HasExited)
-                throw new InvalidOperationException("화면 캡처를 시작하지 못했습니다.\n" + ReadLog());
+                throw new InvalidOperationException("Could not start screen capture.\n" + ReadLog());
         }
         catch
         {
@@ -80,7 +80,7 @@ internal sealed class Recorder : IDisposable
 
     public async Task<string> StopAsync()
     {
-        if (process is null || options is null) throw new InvalidOperationException("녹화 중이 아닙니다.");
+        if (process is null || options is null) throw new InvalidOperationException("No recording is in progress.");
         var captureFailed = process.HasExited;
         if (!process.HasExited)
         {
@@ -88,10 +88,10 @@ internal sealed class Recorder : IDisposable
             await process.StandardInput.FlushAsync();
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             try { await process.WaitForExitAsync(timeout.Token); }
-            catch (OperationCanceledException) { process.Kill(true); await process.WaitForExitAsync(); throw new TimeoutException("녹화 종료 시간이 초과되었습니다. 임시 녹화는 복구 폴더에 남아 있습니다."); }
+            catch (OperationCanceledException) { process.Kill(true); await process.WaitForExitAsync(); throw new TimeoutException("Recording did not stop in time. Temporary files remain in the recovery folder."); }
         }
         await StopAudioAsync();
-        if (captureFailed || process.ExitCode != 0) throw new InvalidOperationException("녹화 프로세스가 중단되었습니다.\n" + ReadLog());
+        if (captureFailed || process.ExitCode != 0) throw new InvalidOperationException("The recording process stopped unexpectedly.\n" + ReadLog());
         var output = Path.Combine(options.Folder, $"b01-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..6]}.{options.Format.ToLowerInvariant()}");
         var partial = Path.Combine(session, "export." + options.Format.ToLowerInvariant());
         var args = new List<string> { "-hide_banner", "-y", "-i", Path.Combine(session, "capture.mkv") };
@@ -110,7 +110,7 @@ internal sealed class Recorder : IDisposable
             case "WEBP":
                 args.AddRange(["-c:v", "libwebp_anim", "-quality", options.Quality.ToString(CultureInfo.InvariantCulture), "-compression_level", "4", "-loop", "0", "-an"]);
                 break;
-            default: throw new InvalidOperationException("지원하지 않는 형식입니다.");
+            default: throw new InvalidOperationException("Unsupported output format.");
         }
         args.Add(partial);
         var error = new StringBuilder();
@@ -119,7 +119,7 @@ internal sealed class Recorder : IDisposable
         // WaitForExit also drains redirected event handlers.
         export.WaitForExit();
         if (export.ExitCode != 0 || !File.Exists(partial) || new FileInfo(partial).Length == 0)
-            throw new InvalidOperationException("저장 변환에 실패했습니다. 임시 파일을 보존했습니다.\n" + error);
+            throw new InvalidOperationException("Export failed. Temporary files have been preserved.\n" + error);
         File.Move(partial, output);
         Dispose();
         try { Directory.Delete(session, true); } catch (IOException) { }
@@ -188,7 +188,7 @@ internal sealed class LoopbackAudio : IDisposable
         await stopped.Task.WaitAsync(TimeSpan.FromSeconds(10));
         lock (gate)
         {
-            if (failure is not null) throw new InvalidOperationException("시스템 소리 캡처에 실패했습니다.", failure);
+            if (failure is not null) throw new InvalidOperationException("Could not capture system audio.", failure);
             WriteSilence(AlignedBytes(duration) - writer.Length);
             writer.Flush();
             writer.Dispose();
