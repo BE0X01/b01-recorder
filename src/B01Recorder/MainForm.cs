@@ -8,28 +8,32 @@ internal sealed class MainForm : Form
     private readonly bool persistSettings;
     private readonly DarkCombo targets = new([]);
     private readonly DarkCombo format = new(["MP4", "GIF", "WEBP"]);
-    private readonly DarkCombo preset = new(["Regular · 30 FPS", "Smooth · 60 FPS", "Light · 15 FPS", "Animation · 10 FPS", "Custom"]);
     private readonly DarkNumber fps = new() { Minimum = 1, Maximum = 120, Width = 76 };
     private readonly QualitySlider quality = new();
     private readonly Label qualityLabel = Label("");
     private readonly CheckBox audio = Check("System audio");
     private readonly CheckBox cursor = Check("Capture cursor");
     private readonly TextBox folder = new() { ReadOnly = true, BorderStyle = BorderStyle.FixedSingle, BackColor = Theme.Input, ForeColor = Theme.Text, Dock = DockStyle.Fill };
+    private readonly TextBox fileNamePattern = new() { BorderStyle = BorderStyle.FixedSingle, BackColor = Theme.Input, ForeColor = Theme.Text, Dock = DockStyle.Fill, MaxLength = 180, AccessibleName = "Recording filename pattern" };
+    private readonly Label fileNameExample = Label("", true);
+    private readonly ToolTip fileNameHelp = new() { AutoPopDelay = 30000, InitialDelay = 300, ReshowDelay = 100 };
     private readonly Label targetLabel = Label("", true);
     private readonly Label status = Label("", true);
     private readonly Label badge = Label("●  READY");
     private readonly DarkButton start = new("●  Record") { Primary = true, Width = 148, Height = 38 };
     private readonly DarkButton select = new("Refresh") { Width = 88, Dock = DockStyle.Fill, Margin = new(8, 0, 0, 0) };
     private readonly DarkButton[] modeButtons = [new("Full screen"), new("Window"), new("Region")];
-    private readonly SlimFlowPanel settingsPanel = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new(0) };
+    private readonly TableLayoutPanel settingsPanel = new() { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Margin = new(0) };
     private readonly SlimFlowPanel gallery = new() { Dock = DockStyle.Fill, WrapContents = true, BackColor = Theme.Surface, Margin = new(0) };
     private readonly MediaPreview preview = new() { Dock = DockStyle.Fill };
     private readonly Label fileLabel = Label("No recording selected");
     private readonly Label countLabel = Label("0 files", true);
     private readonly DarkButton play = new("Play in app") { Width = 106 };
-    private readonly DarkButton external = new("Open externally") { Width = 90 };
-    private readonly DarkButton reveal = new("Folder") { Width = 64 };
-    private readonly DarkButton delete = new("Delete") { Width = 64, Destructive = true };
+    private readonly ToolStripMenuItem external = new("Open externally");
+    private readonly ToolStripMenuItem reveal = new("Show in folder");
+    private readonly ToolStripMenuItem delete = new("Delete") { ForeColor = Color.FromArgb(247, 131, 144) };
+    private readonly DarkButton more = new("More ···") { Width = 86 };
+    private readonly ContextMenuStrip fileMenu = new() { BackColor = Theme.Input, ForeColor = Theme.Text, ShowImageMargin = false };
     private readonly SelectionOverlay overlay = new();
     private readonly System.Windows.Forms.Timer timer = new() { Interval = 200 };
     private readonly Stopwatch clock = new();
@@ -38,22 +42,24 @@ internal sealed class MainForm : Form
     private Recorder? recorder;
     private string? selectedFile;
     private int captureMode;
-    private bool busy, closing, changingPreset, picking, released, settingsSaved;
+    private bool wasMaximized;
+    private bool busy, closing, picking, released, settingsSaved;
 
     public MainForm(Settings? initialSettings = null, bool persistSettings = true)
     {
         if (initialSettings is not null) settings = initialSettings;
         this.persistSettings = persistSettings;
         Text = "B01 Recorder";
-        ClientSize = new(1180, 850); MinimumSize = new(1040, 780);
+        ClientSize = new(1000, 650); MinimumSize = new(900, 650);
+        DoubleBuffered = true;
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Theme.Background; ForeColor = Theme.Text;
         Font = new("Segoe UI", 9); AutoScaleMode = AutoScaleMode.Dpi;
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!);
         settings.Recordings ??= [];
 
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(24), ColumnCount = 1, RowCount = 3 };
-        root.RowStyles.Add(new(SizeType.Absolute, 80)); root.RowStyles.Add(new(SizeType.Percent, 100)); root.RowStyles.Add(new(SizeType.Absolute, 68));
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(16), ColumnCount = 1, RowCount = 3 };
+        root.RowStyles.Add(new(SizeType.Absolute, 54)); root.RowStyles.Add(new(SizeType.Percent, 100)); root.RowStyles.Add(new(SizeType.Absolute, 48));
         root.Controls.Add(BuildHeader(), 0, 0);
         var body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new(0) };
         body.ColumnStyles.Add(new(SizeType.Percent, 58)); body.ColumnStyles.Add(new(SizeType.Percent, 42));
@@ -61,20 +67,16 @@ internal sealed class MainForm : Form
         body.Controls.Add(BuildLibrary(), 0, 0); body.Controls.Add(settingsPanel, 1, 0);
         root.Controls.Add(body, 0, 1); root.Controls.Add(BuildFooter(), 0, 2); Controls.Add(root);
         BuildSettings();
-        settingsPanel.SizeChanged += (_, _) => { foreach (Control card in settingsPanel.Controls) card.Width = Math.Max(350, settingsPanel.ClientSize.Width - 22); };
 
         format.SelectedItem = new[] { "MP4", "GIF", "WEBP" }.Contains(settings.Format) ? settings.Format : "MP4";
         fps.Value = Math.Clamp(settings.Fps, 1, 120); quality.Value = Math.Clamp(settings.Quality, 1, 100);
         audio.Checked = settings.Audio; cursor.Checked = settings.Cursor; folder.Text = settings.Folder;
-        preset.SelectedIndex = settings.Fps switch { 30 => 0, 60 => 1, 15 => 2, 10 => 3, _ => 4 };
+        fileNamePattern.Text = settings.FileNamePattern;
+        fileNamePattern.TextChanged += (_, _) => UpdateFileNameExample();
+        folder.TextChanged += (_, _) => UpdateFileNameExample();
         targets.SelectedIndexChanged += (_, _) => { target = targets.SelectedItem as CaptureTarget; UpdateTarget(); };
         select.Click += (_, _) => { if (captureMode == 2) PickRegion(); else RefreshTargets(); };
         format.SelectedIndexChanged += (_, _) => UpdateFormat(); quality.ValueChanged += (_, _) => UpdateFormat();
-        preset.SelectedIndexChanged += (_, _) =>
-        {
-            if (preset.SelectedIndex is >= 0 and < 4) { changingPreset = true; fps.Value = new[] { 30, 60, 15, 10 }[preset.SelectedIndex]; changingPreset = false; }
-        };
-        fps.ValueChanged += (_, _) => { if (!changingPreset) preset.SelectedIndex = 4; };
         start.Click += async (_, _) => { if (recorder is null) await StartRecording(); else await StopRecording(); };
         play.Click += async (_, _) => { if (selectedFile is not null) await preview.LoadAsync(selectedFile, true); };
         external.Click += (_, _) => SafeAction(() => { if (selectedFile is not null) Process.Start(new ProcessStartInfo(selectedFile) { UseShellExecute = true }); });
@@ -94,32 +96,64 @@ internal sealed class MainForm : Form
         Shown += async (_, _) => { timer.Start(); await RefreshLibraryAsync(); };
         FormClosing += async (_, e) =>
         {
-            if (closing) return;
+            if (closing) { RememberWindow(); return; }
             if (busy) { e.Cancel = true; return; }
             overlay.Hide();
             if (recorder is not null) { e.Cancel = true; await StopRecording(); closing = true; Close(); return; }
+            RememberWindow();
         };
         FormClosed += (_, _) => SaveSettingsOnExit();
+        Resize += (_, _) => { if (WindowState != FormWindowState.Minimized) wasMaximized = WindowState == FormWindowState.Maximized; };
         SetMode(Math.Clamp(settings.CaptureMode, 0, 2)); UpdateFormat(); UpdateLibraryActions();
         status.Text = "Ready · Choose a source, then click Record.";
     }
 
     protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); Theme.DarkTitle(this); }
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        if (settings.WindowX is not int x || settings.WindowY is not int y || settings.WindowWidth <= 0 || settings.WindowHeight <= 0) return;
+        var saved = new Rectangle(x, y, settings.WindowWidth, settings.WindowHeight);
+        var screen = Screen.AllScreens.FirstOrDefault(s => s.WorkingArea.Contains(saved)) ?? Screen.FromRectangle(saved);
+        var area = screen.WorkingArea;
+        var width = Math.Min(Math.Max(saved.Width, MinimumSize.Width), area.Width);
+        var height = Math.Min(Math.Max(saved.Height, MinimumSize.Height), area.Height);
+        StartPosition = FormStartPosition.Manual;
+        Bounds = new Rectangle(Math.Clamp(x, area.Left, area.Right - width), Math.Clamp(y, area.Top, area.Bottom - height), width, height);
+        if (settings.WindowMaximized) WindowState = FormWindowState.Maximized;
+    }
+    private void RememberWindow()
+    {
+        var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+        settings.WindowX = bounds.X; settings.WindowY = bounds.Y;
+        settings.WindowWidth = bounds.Width; settings.WindowHeight = bounds.Height;
+        // Closing a minimized window should reopen its normal or maximized state.
+        settings.WindowMaximized = WindowState == FormWindowState.Minimized ? wasMaximized : WindowState == FormWindowState.Maximized;
+    }
+    private void UpdateFileNameExample()
+    {
+        try
+        {
+            fileNameExample.Text = "Example: " + Path.GetFileName(RecordingFileName.AvailablePath(folder.Text, fileNamePattern.Text, DateTime.Now, format.Text));
+            fileNameExample.ForeColor = Theme.Muted;
+        }
+        catch (ArgumentException ex) { fileNameExample.Text = ex.Message; fileNameExample.ForeColor = Theme.Muted; }
+        fileNameHelp.SetToolTip(fileNameExample, fileNameExample.Text);
+    }
     private Control BuildHeader()
     {
         var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 2, Margin = new(0) };
-        header.ColumnStyles.Add(new(SizeType.Absolute, 62)); header.ColumnStyles.Add(new(SizeType.Percent, 100)); header.ColumnStyles.Add(new(SizeType.Absolute, 106));
-        header.RowStyles.Add(new(SizeType.Absolute, 38)); header.RowStyles.Add(new(SizeType.Absolute, 26));
-        var logo = new PictureBox { Image = Theme.Logo(48), Size = new(48, 48), SizeMode = PictureBoxSizeMode.Zoom, Margin = new(0, 5, 0, 0) };
-        header.Controls.Add(logo, 0, 0); header.SetRowSpan(logo, 2);
-        var title = Label("B01 Recorder"); title.Font = new("Segoe UI Semibold", 23); header.Controls.Add(title, 1, 0);
-        header.Controls.Add(Label("Choose a source. Record. Review.", true), 1, 1);
+        header.ColumnStyles.Add(new(SizeType.Absolute, 46)); header.ColumnStyles.Add(new(SizeType.Percent, 100)); header.ColumnStyles.Add(new(SizeType.Absolute, 106));
+        header.RowStyles.Add(new(SizeType.Percent, 100));
+        var logo = new PictureBox { Image = Theme.Logo(32), Size = new(32, 32), SizeMode = PictureBoxSizeMode.Zoom, Margin = new(0, 4, 0, 0) };
+        header.RowCount = 1; header.Controls.Add(logo, 0, 0);
+        var title = Label("B01 Recorder"); title.Font = new("Segoe UI Semibold", 18); header.Controls.Add(title, 1, 0);
         badge.BackColor = Theme.AccentSurface; badge.ForeColor = Theme.Accent; badge.Padding = new(10, 7, 10, 7); badge.AutoSize = true;
         header.Controls.Add(badge, 2, 0); return header;
     }
     private Control BuildLibrary()
     {
-        var card = new Card { Dock = DockStyle.Fill, Margin = new(0, 0, 20, 0), Padding = new(16) };
+        var card = new Card { Dock = DockStyle.Fill, Margin = new(0, 0, 12, 0), Padding = new(12) };
         var content = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Margin = new(0) };
         content.RowStyles.Add(new(SizeType.Absolute, 34)); content.RowStyles.Add(new(SizeType.Percent, 58));
         content.RowStyles.Add(new(SizeType.Absolute, 30)); content.RowStyles.Add(new(SizeType.Absolute, 46)); content.RowStyles.Add(new(SizeType.Percent, 42));
@@ -128,12 +162,14 @@ internal sealed class MainForm : Form
         heading.Controls.Add(Label("RECENT RECORDINGS", true), 0, 0); heading.Controls.Add(countLabel, 1, 0);
         content.Controls.Add(heading, 0, 0); content.Controls.Add(preview, 0, 1);
         fileLabel.Dock = DockStyle.Fill; fileLabel.AutoEllipsis = true; fileLabel.AutoSize = false; fileLabel.TextAlign = ContentAlignment.MiddleLeft;
-        content.Controls.Add(fileLabel, 0, 2); content.Controls.Add(Row(play, external, reveal, delete), 0, 3); content.Controls.Add(gallery, 0, 4);
+        fileMenu.Items.AddRange([external, reveal, delete]);
+        more.Click += (_, _) => fileMenu.Show(more, new Point(0, more.Height));
+        content.Controls.Add(fileLabel, 0, 2); content.Controls.Add(Row(play, more), 0, 3); content.Controls.Add(gallery, 0, 4);
         card.Controls.Add(content); return card;
     }
     private Control BuildFooter()
     {
-        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Padding = new(0, 16, 0, 0), Margin = new(0) };
+        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Padding = new(0, 8, 0, 0), Margin = new(0) };
         footer.ColumnStyles.Add(new(SizeType.Percent, 100)); footer.ColumnStyles.Add(new(SizeType.Absolute, 156)); footer.RowStyles.Add(new(SizeType.Percent, 100));
         status.AutoSize = false; status.AutoEllipsis = true; status.Dock = DockStyle.Fill; status.TextAlign = ContentAlignment.MiddleLeft;
         footer.Controls.Add(status, 0, 0); footer.Controls.Add(Row(start), 1, 0); return footer;
@@ -147,33 +183,45 @@ internal sealed class MainForm : Form
         picker.ColumnStyles.Add(new(SizeType.Percent, 100)); picker.ColumnStyles.Add(new(SizeType.Absolute, 98)); picker.RowStyles.Add(new(SizeType.Percent, 100));
         picker.Controls.Add(targets, 0, 0); picker.Controls.Add(select, 1, 0);
         targetLabel.AutoSize = false; targetLabel.AutoEllipsis = true; targetLabel.Dock = DockStyle.Fill;
-        AddCard("CAPTURE SOURCE", 152, Stack((modes, 36), (picker, 34), (targetLabel, 25)));
+        AddCard("CAPTURE SOURCE", 132, Stack((modes, 30), (picker, 30), (targetLabel, 20)));
 
-        preset.Width = 228; fps.Width = 76;
-        AddCard("FRAME RATE", 88, Row(preset, fps, Label("FPS", true)));
-        format.Width = 124;
+        format.Width = 100; fps.Width = 70;
+        format.AccessibleName = "Output format"; fps.AccessibleName = "Frames per second";
         quality.Dock = DockStyle.Fill;
         qualityLabel.AutoSize = false; qualityLabel.Dock = DockStyle.Fill;
-        AddCard("OUTPUT & QUALITY", 140, Stack((Row(format, Label("MP4  /  GIF  /  WEBP", true)), 35), (qualityLabel, 22), (quality, 28)));
+        AddCard("RECORDING", 164, Stack((Row(format, fps, Label("FPS", true)), 34), (qualityLabel, 22), (quality, 24), (Row(audio, cursor), 28)));
 
-        var browse = new DarkButton("Choose folder") { Width = 88 };
-        var open = new DarkButton("Open folder") { Width = 88 };
-        AddCard("OUTPUT FOLDER", 116, Stack((folder, 28), (Row(browse, open), 38)));
+        var browse = new DarkButton("···") { Dock = DockStyle.Fill, Margin = new(6, 0, 0, 0), AccessibleName = "Choose output folder" };
+        var folderRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new(0) };
+        folderRow.ColumnStyles.Add(new(SizeType.Percent, 100)); folderRow.ColumnStyles.Add(new(SizeType.Absolute, 36));
+        folderRow.RowStyles.Add(new(SizeType.Percent, 100));
+        folderRow.Controls.Add(folder, 0, 0); folderRow.Controls.Add(browse, 1, 0);
+        fileNameHelp.SetToolTip(browse, "Choose output folder");
+        fileNameHelp.SetToolTip(folder, "Output folder · Double-click to open");
+        var nameRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new(0) };
+        nameRow.ColumnStyles.Add(new(SizeType.Percent, 100)); nameRow.ColumnStyles.Add(new(SizeType.Absolute, 26));
+        nameRow.RowStyles.Add(new(SizeType.Percent, 100));
+        var info = new Label { Text = "ⓘ", Font = new("Segoe UI Symbol", 12), ForeColor = Theme.Muted, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Margin = new(4, 0, 0, 0), AccessibleName = "Filename format help" };
+        nameRow.Controls.Add(fileNamePattern, 0, 0); nameRow.Controls.Add(info, 1, 0);
+        fileNameHelp.SetToolTip(info, RecordingFileName.Help);
+        fileNameExample.AutoSize = false; fileNameExample.AutoEllipsis = true; fileNameExample.Dock = DockStyle.Fill;
+        AddCard("SAVE TO", 168, Stack((folderRow, 30), (Label("Filename pattern", true), 20), (nameRow, 28), (fileNameExample, 22)));
         browse.Click += async (_, _) =>
         {
             using var dialog = new FolderBrowserDialog { InitialDirectory = folder.Text, Description = "Recording output folder" };
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
             folder.Text = dialog.SelectedPath; await RefreshLibraryAsync();
         };
-        open.Click += (_, _) => SafeAction(() => { Directory.CreateDirectory(folder.Text); Process.Start(new ProcessStartInfo(folder.Text) { UseShellExecute = true }); });
-        AddCard("AUDIO & CURSOR", 78, Row(audio, cursor));
+        folder.DoubleClick += (_, _) => SafeAction(() => { Directory.CreateDirectory(folder.Text); Process.Start(new ProcessStartInfo(folder.Text) { UseShellExecute = true }); });
+        settingsPanel.RowStyles.Add(new(SizeType.Percent, 100));
     }
     private void AddCard(string title, int height, Control content)
     {
-        var card = new Card { Height = height, Width = 442, Margin = new(0, 0, 0, 10), Padding = new(14) };
+        var card = new Card { Dock = DockStyle.Fill, Margin = new(0, 0, 0, 8), Padding = new(12) };
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = new(0) };
-        layout.RowStyles.Add(new(SizeType.Absolute, 24)); layout.RowStyles.Add(new(SizeType.Percent, 100));
-        layout.Controls.Add(Label(title, true), 0, 0); content.Dock = DockStyle.Fill; layout.Controls.Add(content, 0, 1); card.Controls.Add(layout); settingsPanel.Controls.Add(card);
+        layout.RowStyles.Add(new(SizeType.Absolute, 20)); layout.RowStyles.Add(new(SizeType.Percent, 100));
+        layout.Controls.Add(Label(title, true), 0, 0); content.Dock = DockStyle.Fill; layout.Controls.Add(content, 0, 1); card.Controls.Add(layout);
+        var index = settingsPanel.Controls.Count; settingsPanel.RowStyles.Add(new(SizeType.Absolute, height)); settingsPanel.Controls.Add(card, 0, index);
     }
     private static TableLayoutPanel Stack(params (Control control, int height)[] rows)
     {
@@ -190,7 +238,9 @@ internal sealed class MainForm : Form
     }
     private static FlowLayoutPanel Row(params Control[] children)
     {
-        var row = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new(0) }; row.Controls.AddRange(children); return row;
+        var row = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new(0) };
+        foreach (var child in children) child.Margin = new(0, child is Label ? 7 : 0, 8, 0);
+        row.Controls.AddRange(children); return row;
     }
     private static Label Label(string text, bool muted = false) => new() { Text = text, UseMnemonic = false, ForeColor = muted ? Theme.Muted : Theme.Text, AutoSize = true, Margin = new(0, 2, 8, 0) };
     private static CheckBox Check(string text) => new DarkCheck { Text = text, ForeColor = Theme.Text, BackColor = Theme.Surface, Margin = new(0, 3, 16, 0) };
@@ -236,6 +286,7 @@ internal sealed class MainForm : Form
     private void UpdateOverlay() => overlay.Update(target, captureMode != 0 && !picking && !closing && WindowState != FormWindowState.Minimized);
     private void UpdateFormat()
     {
+        UpdateFileNameExample();
         var animation = format.Text != "MP4"; audio.Enabled = !animation; quality.Enabled = animation;
         qualityLabel.Text = animation ? $"Quality {quality.Value}% · Higher means sharper" : "MP4 · High-quality H.264 / audio supported";
     }
@@ -246,7 +297,7 @@ internal sealed class MainForm : Form
         try
         {
             await preview.PauseAsync(); recorder = new(Recorder.ResolveFfmpeg(settings.Ffmpeg));
-            await recorder.StartAsync(new(target, (int)fps.Value, format.Text, quality.Value, audio.Checked && format.Text == "MP4", cursor.Checked, folder.Text));
+            await recorder.StartAsync(new(target, (int)fps.Value, format.Text, quality.Value, audio.Checked && format.Text == "MP4", cursor.Checked, folder.Text, fileNamePattern.Text));
             clock.Restart(); badge.Text = "●  REC"; badge.ForeColor = Color.FromArgb(255, 125, 145);
             status.Text = "● Recording · Click Stop & save when finished.";
         }
@@ -284,7 +335,7 @@ internal sealed class MainForm : Form
     private void UpdateLibraryActions()
     {
         var enabled = selectedFile is not null && File.Exists(selectedFile) && !busy && recorder is null;
-        play.Enabled = external.Enabled = reveal.Enabled = delete.Enabled = enabled;
+        play.Enabled = more.Enabled = external.Enabled = reveal.Enabled = delete.Enabled = enabled;
     }
     private async Task RefreshLibraryAsync(string? preferred = null)
     {
@@ -341,6 +392,7 @@ internal sealed class MainForm : Form
         settingsSaved = true; settings.CaptureMode = captureMode;
         settings.Folder = folder.Text; settings.Format = format.Text; settings.Fps = (int)fps.Value;
         settings.Quality = quality.Value; settings.Audio = audio.Checked; settings.Cursor = cursor.Checked;
+        settings.FileNamePattern = fileNamePattern.Text;
         try { settings.Save(); } catch (Exception ex) { DarkDialog.Show(this, "Could not save setting.ini: " + ex.Message); }
     }
     private void SafeAction(Action action) { try { action(); } catch (Exception ex) { ShowError(ex); } }
@@ -351,7 +403,7 @@ internal sealed class MainForm : Form
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing && !released) { released = true; timer.Dispose(); overlay.Dispose(); libraryRefresh?.Cancel(); libraryRefresh?.Dispose(); libraryRefresh = null; recorder?.Dispose(); recorder = null; }
+        if (disposing && !released) { released = true; fileMenu.Dispose(); fileNameHelp.Dispose(); timer.Dispose(); overlay.Dispose(); libraryRefresh?.Cancel(); libraryRefresh?.Dispose(); libraryRefresh = null; recorder?.Dispose(); recorder = null; }
         base.Dispose(disposing);
     }
 }

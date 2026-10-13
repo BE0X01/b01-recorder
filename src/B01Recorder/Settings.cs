@@ -14,6 +14,12 @@ internal sealed class Settings
     public bool Cursor { get; set; } = true;
     public int CaptureMode { get; set; }
     public string Ffmpeg { get; set; } = "";
+    public string FileNamePattern { get; set; } = RecordingFileName.DefaultPattern;
+    public int? WindowX { get; set; }
+    public int? WindowY { get; set; }
+    public int WindowWidth { get; set; }
+    public int WindowHeight { get; set; }
+    public bool WindowMaximized { get; set; }
     public List<string> Recordings { get; set; } = [];
     internal string StoragePath { get; set; } = Path.Combine(AppContext.BaseDirectory, "setting.ini");
 
@@ -48,6 +54,12 @@ internal sealed class Settings
                     case "CaptureCursor" when bool.TryParse(value, out var cursor): settings.Cursor = cursor; break;
                     case "CaptureMode" when int.TryParse(value, out var mode): settings.CaptureMode = Math.Clamp(mode, 0, 2); break;
                     case "FFmpegPath": settings.Ffmpeg = value; break;
+                    case "FileNamePattern": settings.FileNamePattern = value; break;
+                    case "WindowX" when int.TryParse(value, out var x): settings.WindowX = x; break;
+                    case "WindowY" when int.TryParse(value, out var y): settings.WindowY = y; break;
+                    case "WindowWidth" when int.TryParse(value, out var width): settings.WindowWidth = width; break;
+                    case "WindowHeight" when int.TryParse(value, out var height): settings.WindowHeight = height; break;
+                    case "WindowMaximized" when bool.TryParse(value, out var maximized): settings.WindowMaximized = maximized; break;
                     default: if (key.StartsWith("File", StringComparison.Ordinal) && File.Exists(value)) settings.Recordings.Add(value); break;
                 }
             }
@@ -63,7 +75,13 @@ internal sealed class Settings
             .AppendLine("Quality=" + Quality.ToString(CultureInfo.InvariantCulture))
             .AppendLine("SystemAudio=" + Audio).AppendLine("CaptureCursor=" + Cursor)
             .AppendLine("CaptureMode=" + CaptureMode.ToString(CultureInfo.InvariantCulture))
-            .AppendLine("FFmpegPath=" + Ffmpeg).AppendLine().AppendLine("[Library]");
+            .AppendLine("FFmpegPath=" + Ffmpeg).AppendLine("FileNamePattern=" + FileNamePattern)
+            .AppendLine().AppendLine("[Window]")
+            .AppendLine("WindowX=" + WindowX?.ToString(CultureInfo.InvariantCulture))
+            .AppendLine("WindowY=" + WindowY?.ToString(CultureInfo.InvariantCulture))
+            .AppendLine("WindowWidth=" + WindowWidth.ToString(CultureInfo.InvariantCulture))
+            .AppendLine("WindowHeight=" + WindowHeight.ToString(CultureInfo.InvariantCulture))
+            .AppendLine("WindowMaximized=" + WindowMaximized).AppendLine().AppendLine("[Library]");
         for (var i = 0; i < Recordings.Count; i++) text.AppendLine($"File{i}={Recordings[i]}");
         File.WriteAllText(StoragePath, text.ToString(), new UTF8Encoding(false));
     }

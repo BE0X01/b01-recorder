@@ -2,7 +2,7 @@ param([switch]$SkipDownload)
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $taskRoot
-$taskVersion = '0.2'
+$taskVersion = '0.3'
 $taskFfmpegVersion = '9.0.2'
 $taskArchiveHash = '60F467265B1E312373DBCD92200C2618A74850F98D3D078E94296BB3FA2047BA'
 $taskTools = Join-Path $taskRoot '.tools'

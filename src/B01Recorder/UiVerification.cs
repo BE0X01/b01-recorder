@@ -135,15 +135,16 @@ internal static class UiVerification
             results.Add(new { check = "thumbnail-and-embedded-media", file, thumbnail = thumb });
         }
         await InvokeTask(form, "SelectFileAsync", synthetic); await Task.Delay(300);
-        var preset = Field<DarkCombo>(form, "preset");
-        Invoke(preset, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 12, 12, 0));
-        var popup = Field<ToolStripDropDown>(preset, "popup"); Assert(popup.Visible, "Dark dropdown did not open.");
+        var formatPicker = Field<DarkCombo>(form, "format");
+        Invoke(formatPicker, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 12, 12, 0));
+        var popup = Field<ToolStripDropDown>(formatPicker, "popup"); Assert(popup.Visible, "Dark dropdown did not open.");
         Capture(form, Path.Combine(output, "ui-dropdown.png"));
         var list = ((ToolStripControlHost)popup.Items[0]).Control;
         Invoke(list, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 45, 0));
-        Assert(preset.SelectedIndex == 1 && Field<DarkNumber>(form, "fps").Value == 60, "Dropdown preset selection failed.");
+        Assert(formatPicker.SelectedIndex == 1 && !Field<CheckBox>(form, "audio").Enabled, "Dropdown output format selection failed.");
+        formatPicker.SelectedIndex = 0;
         var number = Field<DarkNumber>(form, "fps"); Field<TextBox>(number, "edit").Text = "24";
-        Assert(number.Value == 24 && preset.SelectedIndex == 4, "Custom FPS text input failed.");
+        Assert(number.Value == 24, "Custom FPS text input failed.");
         var audio = Field<CheckBox>(form, "audio"); var previous = audio.Checked; Invoke(audio, "OnClick", EventArgs.Empty);
         Assert(audio.Checked != previous, "Custom checkbox did not toggle."); audio.Checked = previous;
         var gallery = Field<SlimFlowPanel>(form, "gallery");
@@ -153,7 +154,7 @@ internal static class UiVerification
         results.Add(new { check = "custom-dropdown-checkbox-fps-scrollbar" });
         AssertButtonsFit(form); Capture(form, Path.Combine(output, "ui-default.png"));
         form.Size = form.MinimumSize; await Task.Delay(200); AssertButtonsFit(form); Capture(form, Path.Combine(output, "ui-minimum.png"));
-        results.Add(new { check = "footer-layout", defaultClient = "1180 × 850", minimumWindow = form.Size.ToString() });
+        results.Add(new { check = "footer-layout", defaultClient = "1000 × 650", minimumWindow = form.Size.ToString() });
 
         await preview.ClearAsync(); var thumbnailPath = RecordingLibrary.ThumbnailPath(synthetic);
         RecordingLibrary.Trash(synthetic);

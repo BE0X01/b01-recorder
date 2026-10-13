@@ -6,7 +6,7 @@ B01 Recorder source is licensed under [MIT](LICENSE). The application is free to
 
 - **NAudio 2.2.1** and its Asio, Core, Midi, Wasapi, WinForms, and WinMM modules: Mark Heath and contributors, MIT. Copyright and permission notice: `licenses/NAudio-MIT.txt`. Source: https://github.com/naudio/NAudio/tree/v2.2.1 .
 - **.NET runtime and Windows Forms**: Microsoft and contributors, MIT with additional notices for incorporated components. Included files: `licenses/dotnet-LICENSE.txt` and `licenses/dotnet-ThirdPartyNotices.txt`. Source: https://github.com/dotnet/runtime and https://github.com/dotnet/winforms .
-- **Microsoft WebView2 SDK 1.0.4258.31** (Version 0.2): the package LICENSE.txt contains BSD 3-Clause terms, not the Microsoft Runtime license. Copyright, conditions, and disclaimer are preserved in `licenses/WebView2-LICENSE.txt`; additional notices are in `licenses/WebView2-NOTICE.txt`. Package license: https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.4258.31/License .
+- **Microsoft WebView2 SDK 1.0.4258.31** (Versions 0.2 and later): the package LICENSE.txt contains BSD 3-Clause terms, not the Microsoft Runtime license. Copyright, conditions, and disclaimer are preserved in `licenses/WebView2-LICENSE.txt`; additional notices are in `licenses/WebView2-NOTICE.txt`. Package license: https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.4258.31/License .
 
 ## Separately obtained runtime components
 

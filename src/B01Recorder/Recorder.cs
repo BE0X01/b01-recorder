@@ -5,7 +5,7 @@ using NAudio.Wave;
 
 namespace B01Recorder;
 
-internal sealed record RecordingOptions(CaptureTarget Target, int Fps, string Format, int Quality, bool Audio, bool Cursor, string Folder);
+internal sealed record RecordingOptions(CaptureTarget Target, int Fps, string Format, int Quality, bool Audio, bool Cursor, string Folder, string FileNamePattern = RecordingFileName.DefaultPattern);
 
 internal sealed class Recorder : IDisposable
 {
@@ -16,6 +16,7 @@ internal sealed class Recorder : IDisposable
     private LoopbackAudio? audio;
     private RecordingOptions? options;
     private string session = "";
+    private DateTime startedAt;
     public string RecoveryFolder => session;
     public bool HasExited => process?.HasExited ?? true;
     public Recorder(string ffmpeg) => this.ffmpeg = ffmpeg;
@@ -44,6 +45,8 @@ internal sealed class Recorder : IDisposable
             throw new InvalidOperationException("The selected window is closed or minimized. Select a visible window.");
         if (value.Target.Bounds.Width < 16 || value.Target.Bounds.Height < 16) throw new InvalidOperationException("The recording region is too small.");
         options = value;
+        startedAt = DateTime.Now;
+        RecordingFileName.Format(value.FileNamePattern, startedAt, 1);
         Directory.CreateDirectory(value.Folder);
         session = Path.Combine(value.Folder, $".b01-session-{Guid.NewGuid():N}");
         Directory.CreateDirectory(session);
@@ -92,7 +95,6 @@ internal sealed class Recorder : IDisposable
         }
         await StopAudioAsync();
         if (captureFailed || process.ExitCode != 0) throw new InvalidOperationException("The recording process stopped unexpectedly.\n" + ReadLog());
-        var output = Path.Combine(options.Folder, $"b01-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..6]}.{options.Format.ToLowerInvariant()}");
         var partial = Path.Combine(session, "export." + options.Format.ToLowerInvariant());
         var args = new List<string> { "-hide_banner", "-y", "-i", Path.Combine(session, "capture.mkv") };
         switch (options.Format)
@@ -120,7 +122,13 @@ internal sealed class Recorder : IDisposable
         export.WaitForExit();
         if (export.ExitCode != 0 || !File.Exists(partial) || new FileInfo(partial).Length == 0)
             throw new InvalidOperationException("Export failed. Temporary files have been preserved.\n" + error);
-        File.Move(partial, output);
+        string output;
+        while (true)
+        {
+            output = RecordingFileName.AvailablePath(options.Folder, options.FileNamePattern, startedAt, options.Format);
+            try { File.Move(partial, output); break; }
+            catch (IOException) when (File.Exists(output) || Directory.Exists(output)) { }
+        }
         Dispose();
         try { Directory.Delete(session, true); } catch (IOException) { }
         return output;

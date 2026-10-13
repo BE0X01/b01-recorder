@@ -37,7 +37,7 @@ internal sealed class DarkCombo : Control
     public DarkCombo(string[] items)
     {
         Items = new ComboItems(this); Items.AddRange(items); if (Items.Count > 0) SelectedIndex = 0;
-        Size = new(200, 32); DoubleBuffered = true; Cursor = Cursors.Hand; TabStop = true;
+        Size = new(200, 32); DoubleBuffered = true; SetStyle(ControlStyles.ResizeRedraw, true); Cursor = Cursors.Hand; TabStop = true;
     }
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -126,7 +126,7 @@ internal sealed class SlimScrollBar : Control
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public int Value { get => value; set { var next = Math.Clamp(value, 0, maximum); if (next == this.value) return; this.value = next; Invalidate(); ValueChanged?.Invoke(this, EventArgs.Empty); } }
     private int ThumbHeight => Math.Min(Height, Math.Max(28, (int)((long)Height * Viewport / (Maximum + Viewport))));
     private int ThumbY => Maximum == 0 ? 0 : (int)((long)(Height - ThumbHeight) * Value / Maximum);
-    public SlimScrollBar() { DoubleBuffered = true; Cursor = Cursors.Hand; Width = 12; }
+    public SlimScrollBar() { DoubleBuffered = true; SetStyle(ControlStyles.ResizeRedraw, true); Cursor = Cursors.Hand; Width = 12; }
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias; if (Maximum == 0) return;
@@ -172,6 +172,7 @@ internal sealed class SlimFlowPanel : UserControl
             scroll.Bounds = new(ClientSize.Width - 12, 0, 12, ClientSize.Height); scroll.Viewport = ClientSize.Height;
             scroll.Maximum = Math.Max(0, flow.Height - ClientSize.Height); scroll.Visible = scroll.Maximum > 0;
             flow.Location = new(0, -scroll.Value);
+            Invalidate(true);
         }
         finally { arranging = false; }
     }
@@ -192,7 +193,7 @@ internal sealed class DarkNumber : Control
     }
     public DarkNumber()
     {
-        Size = new(76, 32); DoubleBuffered = true; Controls.Add(edit); edit.Text = "1";
+        Size = new(76, 32); DoubleBuffered = true; SetStyle(ControlStyles.ResizeRedraw, true); Controls.Add(edit); edit.Text = "1";
         edit.TextChanged += (_, _) => { if (!updating && decimal.TryParse(edit.Text, out var next) && next >= Minimum && next <= Maximum) { value = next; ValueChanged?.Invoke(this, EventArgs.Empty); } };
         edit.Leave += (_, _) => Value = decimal.TryParse(edit.Text, out var next) ? next : value;
         edit.KeyPress += (_, e) => { if (!char.IsControl(e.KeyChar) && !char.IsDigit(e.KeyChar)) e.Handled = true; };

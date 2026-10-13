@@ -11,7 +11,7 @@ internal static class RecordingLibrary
     {
         var files = new List<string>(remembered);
         if (Directory.Exists(folder))
-            files.AddRange(Directory.EnumerateFiles(folder, "b01-*", System.IO.SearchOption.TopDirectoryOnly));
+            files.AddRange(Directory.EnumerateFiles(folder, "*", System.IO.SearchOption.TopDirectoryOnly));
         return files.Where(File.Exists).Where(f => new[] { ".mp4", ".gif", ".webp" }.Contains(Path.GetExtension(f).ToLowerInvariant()))
             .Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).OrderByDescending(File.GetLastWriteTimeUtc).Take(60).ToList();
     }

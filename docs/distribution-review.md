@@ -28,3 +28,10 @@ References:
 - NAudio 2.2.1 license: https://github.com/naudio/NAudio/blob/v2.2.1/license.txt
 
 Remaining limits: this change does not certify every dependency as vulnerability-free or resolve jurisdiction-specific codec patent questions. It also does not retroactively prove compliance of earlier downloads. Re-bundling FFmpeg requires a separate, complete corresponding-source review.
+
+## Version 0.3 package check - 2026-10-14
+
+- Published the self-contained Windows x64 app at version 0.3.0 using the existing dependency versions.
+- The release ZIP includes the checksum-verified FFmpeg setup scripts and NAudio, .NET, and WebView2 SDK notices. It excludes FFmpeg/FFprobe executables, personal settings, recordings, verification fixtures, and caches.
+- The published executable passed the local UI integration suite, including embedded playback, thumbnails, settings persistence, capture selection, and minimum/default layouts. Focused fixture checks also covered filename tags/collisions, actual MP4/GIF/WebP saves, window restoration, and repeated-resize border repainting.
+- SHA256SUMS.txt is generated for the new ZIP. No new dependency vulnerability result is claimed: the package source could not be reached during the build's audit query.

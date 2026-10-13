@@ -46,7 +46,7 @@ internal class Card : Panel
 {
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public Color BorderColor { get; set; } = Theme.Border;
-    public Card() { DoubleBuffered = true; BackColor = Theme.Surface; Padding = new(16); }
+    public Card() { DoubleBuffered = true; SetStyle(ControlStyles.ResizeRedraw, true); BackColor = Theme.Surface; Padding = new(16); }
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e); e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -66,7 +66,7 @@ internal sealed class DarkButton : Button
     {
         Text = text; AutoSize = false; Size = new(106, 36); Margin = new(0, 0, 8, 0);
         FlatStyle = FlatStyle.Flat; Cursor = Cursors.Hand; ForeColor = Theme.Text; BackColor = Theme.Input;
-        SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
+        SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
     }
     protected override void OnMouseEnter(EventArgs e) { hovering = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { hovering = false; Invalidate(); base.OnMouseLeave(e); }
@@ -92,7 +92,7 @@ internal sealed class QualitySlider : Control
     public event EventHandler? ValueChanged;
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public int Value { get => value; set { var next = Math.Clamp(value, 1, 100); if (next == this.value) return; this.value = next; Invalidate(); ValueChanged?.Invoke(this, EventArgs.Empty); } }
-    public QualitySlider() { Size = new(320, 28); DoubleBuffered = true; Cursor = Cursors.Hand; TabStop = true; }
+    public QualitySlider() { Size = new(320, 28); DoubleBuffered = true; SetStyle(ControlStyles.ResizeRedraw, true); Cursor = Cursors.Hand; TabStop = true; }
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
