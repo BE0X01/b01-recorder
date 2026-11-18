@@ -49,11 +49,13 @@ internal static class Windows
 internal sealed class RegionPicker : Form
 {
     private readonly Bitmap snapshot;
+    private readonly bool dimBackground;
     private Point? origin;
     private Rectangle selection;
     public Rectangle SelectedBounds { get; private set; }
-    public RegionPicker()
+    public RegionPicker(bool dimBackground = false)
     {
+        this.dimBackground = dimBackground;
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
         Bounds = SystemInformation.VirtualScreen;
@@ -87,13 +89,24 @@ internal sealed class RegionPicker : Form
     {
         base.OnPaint(e);
         e.Graphics.DrawImageUnscaled(snapshot, Point.Empty);
+        if (dimBackground)
+        {
+            using var outside = new Region(ClientRectangle);
+            outside.Exclude(selection);
+            using var shade = new SolidBrush(Color.FromArgb(145, Color.Black));
+            e.Graphics.FillRegion(shade, outside);
+        }
         using var pen = new Pen(Theme.Accent, 3);
         e.Graphics.DrawRectangle(pen, selection);
-        using var font = new Font("Segoe UI", 14);
         using var brush = new SolidBrush(Theme.Background);
-        e.Graphics.FillRectangle(brush, 20, 20, 425, 38);
-        e.Graphics.DrawString("Drag to select a region  ·  Esc to cancel", font, Brushes.White, 30, 26);
-        if (selection.Width > 0) e.Graphics.DrawString($"{selection.Width} × {selection.Height}", font, Brushes.White, selection.Left + 8, selection.Top + 8);
+        var font = Ui.Font(12);
+        var instruction = Ui.T("Drag to select a region · Esc to cancel", "드래그하여 영역 지정 · Esc로 취소");
+        var size = TextRenderer.MeasureText(instruction, font);
+        e.Graphics.FillRectangle(brush, 20, 20, size.Width + 24, size.Height + 16);
+        TextRenderer.DrawText(e.Graphics, instruction, font, new Point(32, 28), Theme.Text);
+        if (selection.Width > 0)
+            TextRenderer.DrawText(e.Graphics, $"{selection.Width} × {selection.Height}", font,
+                new Point(selection.Left + 8, selection.Top + 8), Theme.Text, Theme.Background);
     }
     protected override void Dispose(bool disposing) { if (disposing) snapshot.Dispose(); base.Dispose(disposing); }
 }

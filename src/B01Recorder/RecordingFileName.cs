@@ -6,7 +6,7 @@ namespace B01Recorder;
 internal static class RecordingFileName
 {
     public const string DefaultPattern = "record_%y%m%d-%n";
-    public const string Help = "Default: record_%y%m%d-%n → record_261014-01.mp4\n" +
+    public static string Help => Ui.T("Default: record_%y%m%d-%n → record_261014-01.mp4\n" +
         "Extension is added automatically.\n\n" +
         "%y  Two-digit year (26)     %Y  Full year (2026)\n" +
         "%m  Month (01–12)           %d  Day (01–31)\n" +
@@ -18,17 +18,31 @@ internal static class RecordingFileName
         "%w  Weekday (0 = Sunday, 6 = Saturday)\n" +
         "%c  Date and time          %x  Date          %X  Time\n" +
         "%%  Literal %\n\n" +
-        "Invalid filename characters become _. Existing files are never overwritten.\n" +
-        "Without %n, a duplicate name gets -01, -02, …";
+        "Invalid filename characters become _.\n" +
+        "Without %n, a duplicate name gets -01, -02, …",
+        "기본값: record_%y%m%d-%n → record_261014-01.mp4\n" +
+        "확장자는 자동으로 붙습니다.\n\n" +
+        "%y  연도 2자리 (26)     %Y  연도 4자리 (2026)\n" +
+        "%m  월 (01–12)         %d  일 (01–31)\n" +
+        "%H  24시간제 (00–23)    %I  12시간제 (01–12)\n" +
+        "%M  분 (00–59)         %S / %s  초 (00–59)\n" +
+        "%p  AM / PM            %n  사용 가능한 번호 (01, 02, …)\n" +
+        "%a  요일 약칭 (Wed)     %A  요일 (Wednesday)\n" +
+        "%b  월 약칭 (Oct)       %B  월 (October)\n" +
+        "%w  요일 번호 (일요일 0, 토요일 6)\n" +
+        "%c  날짜와 시간         %x  날짜          %X  시간\n" +
+        "%%  퍼센트 기호\n\n" +
+        "파일명에 쓸 수 없는 문자는 _로 바뀝니다.\n" +
+        "%n 없이 이름이 겹치면 -01, -02, …를 붙입니다.");
 
     public static string Format(string pattern, DateTime date, int number)
     {
-        if (string.IsNullOrWhiteSpace(pattern)) throw new ArgumentException("Enter a recording filename pattern.");
+        if (string.IsNullOrWhiteSpace(pattern)) throw new ArgumentException(Ui.T("Enter a recording filename pattern.", "파일 이름 형식을 입력하세요."));
         var result = new StringBuilder();
         for (var i = 0; i < pattern.Length; i++)
         {
             if (pattern[i] != '%') { result.Append(pattern[i]); continue; }
-            if (++i == pattern.Length) throw new ArgumentException("Use %% for a literal percent sign.");
+            if (++i == pattern.Length) throw new ArgumentException(Ui.T("Use %% for a literal percent sign.", "퍼센트 기호를 쓰려면 %%를 입력하세요."));
             result.Append(pattern[i] switch
             {
                 'a' => date.ToString("ddd", CultureInfo.InvariantCulture),
@@ -50,14 +64,15 @@ internal static class RecordingFileName
                 'y' => date.ToString("yy", CultureInfo.InvariantCulture),
                 'n' => number.ToString("D2", CultureInfo.InvariantCulture),
                 '%' => "%",
-                _ => throw new ArgumentException($"Unknown filename tag %{pattern[i]}. Hover over the information icon for supported tags.")
+                _ => throw new ArgumentException(Ui.T($"Unknown filename tag %{pattern[i]}. Open the information button for supported tags.",
+                    $"알 수 없는 파일 이름 태그입니다 (%{pattern[i]}). 도움말 버튼에서 지원 태그를 확인하세요."))
             });
         }
         var name = result.ToString();
         foreach (var character in Path.GetInvalidFileNameChars()) name = name.Replace(character, '_');
         name = name.Trim().TrimEnd('.', ' ');
-        if (name.Length == 0) throw new ArgumentException("The filename pattern must produce a name.");
-        if (name.Length > 240) throw new ArgumentException("The filename pattern produces a name that is too long.");
+        if (name.Length == 0) throw new ArgumentException(Ui.T("The filename pattern must produce a name.", "파일 이름 형식으로 이름을 만들 수 없습니다."));
+        if (name.Length > 240) throw new ArgumentException(Ui.T("The filename pattern produces a name that is too long.", "파일 이름이 너무 깁니다."));
         var stem = name.Split('.')[0];
         if (new[] { "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$" }.Contains(stem, StringComparer.OrdinalIgnoreCase) ||
             (stem.Length == 4 && (stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase) || stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)) && "123456789¹²³".Contains(stem[3])))

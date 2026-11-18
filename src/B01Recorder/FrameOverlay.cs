@@ -17,6 +17,7 @@ internal sealed class SelectionOverlay : IDisposable
             var ring = new Region(Rectangle.Inflate(local, 3, 3)); ring.Exclude(local);
             var old = border.Region; border.Region = ring; old?.Dispose(); last = bounds;
         }
+        border.BackColor = Theme.Accent;
         if (!border.Visible) border.Show();
     }
     public void Hide() => border.Hide();

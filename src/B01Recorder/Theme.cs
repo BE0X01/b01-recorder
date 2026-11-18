@@ -6,18 +6,54 @@ namespace B01Recorder;
 
 internal static class Theme
 {
-    public static readonly Color Background = Color.FromArgb(13, 14, 19);
-    public static readonly Color Surface = Color.FromArgb(19, 20, 28);
-    public static readonly Color Input = Color.FromArgb(26, 27, 37);
-    public static readonly Color Border = Color.FromArgb(43, 45, 57);
-    public static readonly Color Text = Color.FromArgb(228, 232, 237);
-    public static readonly Color Muted = Color.FromArgb(142, 146, 166);
-    public static readonly Color Accent = Color.FromArgb(77, 225, 205);
-    public static readonly Color AccentSurface = Color.FromArgb(20, 47, 45);
+    private static readonly Color[] dark = [Rgb(0x101419), Rgb(0x181D23), Rgb(0x20272F), Rgb(0x333D48),
+        Rgb(0xEFF3F7), Rgb(0xA7B3C0), Rgb(0x83A9DF), Rgb(0x27384F)];
+    private static readonly Color[] light = [Rgb(0xEFF3F5), Rgb(0xFFFFFF), Rgb(0xF3F6F8), Rgb(0xCED8DF),
+        Rgb(0x17262D), Rgb(0x516570), Rgb(0x365D94), Rgb(0xE8EFF8)];
+    private static Color[] colors = dark;
+    public static bool IsDark => colors == dark;
+    public static Color Background => colors[0];
+    public static Color Surface => colors[1];
+    public static Color Input => colors[2];
+    public static Color Border => colors[3];
+    public static Color Text => colors[4];
+    public static Color Muted => colors[5];
+    public static Color Accent => colors[6];
+    public static Color AccentSurface => colors[7];
+    public static Color OnAccent => IsDark ? Background : Color.White;
+    private static Color Rgb(int rgb) => Color.FromArgb(unchecked((int)0xff000000) | rgb);
+
+    public static void Apply(ThemeMode mode, Form root)
+    {
+        var previous = colors;
+        colors = mode == ThemeMode.Light || mode == ThemeMode.System && SystemUsesLightTheme() ? light : dark;
+        if (previous == colors) return;
+        Repaint(root, previous);
+        if (root.IsHandleCreated) DarkTitle(root);
+        foreach (var child in root.OwnedForms) { Repaint(child, previous); DarkTitle(child); }
+    }
+
+    private static bool SystemUsesLightTheme() =>
+        Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            "AppsUseLightTheme", 1) is int value && value != 0;
+
+    private static void Repaint(Control control, Color[] previous)
+    {
+        Color Restyle(Color color)
+        {
+            var index = Array.FindIndex(previous, old => old.ToArgb() == color.ToArgb());
+            return index < 0 ? color : colors[index];
+        }
+        control.BackColor = Restyle(control.BackColor);
+        control.ForeColor = Restyle(control.ForeColor);
+        if (control is Card card) card.BorderColor = Restyle(card.BorderColor);
+        foreach (Control child in control.Controls) Repaint(child, previous);
+        control.Invalidate();
+    }
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(nint hwnd, int attribute, ref int value, int size);
     public static void DarkTitle(Form form)
     {
-        var enabled = 1;
+        var enabled = IsDark ? 1 : 0;
         DwmSetWindowAttribute(form.Handle, 20, ref enabled, sizeof(int));
     }
     public static GraphicsPath Rounded(RectangleF r, float radius)
@@ -27,19 +63,6 @@ internal static class Theme
         path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90); path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
         path.CloseFigure(); return path;
     }
-    public static Bitmap Logo(int size)
-    {
-        var bitmap = new Bitmap(size, size);
-        using var g = Graphics.FromImage(bitmap);
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.ScaleTransform(size / 64f, size / 64f);
-        using var shape = Rounded(new(2, 2, 60, 60), 16);
-        using var back = new SolidBrush(AccentSurface); g.FillPath(back, shape);
-        using var pen = new Pen(Accent, 3) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
-        foreach (var points in new[] { new Point[] { new(26, 16), new(16, 16), new(16, 26) }, [new(38, 16), new(48, 16), new(48, 26)], [new(16, 38), new(16, 48), new(26, 48)], [new(38, 48), new(48, 48), new(48, 38)] }) g.DrawLines(pen, points);
-        using var accent = new SolidBrush(Accent); g.FillEllipse(accent, 23, 23, 18, 18);
-        return bitmap;
-    }
 }
 
 internal class Card : Panel
@@ -47,10 +70,15 @@ internal class Card : Panel
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public Color BorderColor { get; set; } = Theme.Border;
     public Card() { DoubleBuffered = true; SetStyle(ControlStyles.ResizeRedraw, true); BackColor = Theme.Surface; Padding = new(16); }
+    protected override void OnPaintBackground(PaintEventArgs e) => e.Graphics.Clear(Parent?.BackColor ?? Theme.Background);
     protected override void OnPaint(PaintEventArgs e)
     {
-        base.OnPaint(e); e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        base.OnPaint(e);
+        if (Width < 4 || Height < 4) return;
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         using var shape = Theme.Rounded(new(0, 0, Width - 1, Height - 1), 12);
+        using var fill = new SolidBrush(BackColor);
+        e.Graphics.FillPath(fill, shape);
         using var pen = new Pen(BorderColor); e.Graphics.DrawPath(pen, shape);
     }
 }
@@ -60,29 +88,47 @@ internal sealed class DarkButton : Button
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public bool Primary { get; set; }
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public bool Selected { get; set; }
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public bool Destructive { get; set; }
-    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public bool Radio { get; set; }
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public string? Glyph { get; set; }
     private bool hovering;
     public DarkButton(string text)
     {
-        Text = text; AutoSize = false; Size = new(106, 36); Margin = new(0, 0, 8, 0);
+        Text = text; AutoSize = false; Size = new(104, 36); Margin = new(0, 0, 8, 0);
         FlatStyle = FlatStyle.Flat; Cursor = Cursors.Hand; ForeColor = Theme.Text; BackColor = Theme.Input;
         SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
     }
     protected override void OnMouseEnter(EventArgs e) { hovering = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { hovering = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+    protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.Clear(Parent?.BackColor ?? Theme.Background);
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        var fill = !Enabled ? Theme.Surface : Primary ? Theme.Accent : Selected ? Theme.AccentSurface : hovering ? Color.FromArgb(35, 37, 49) : Theme.Input;
+        var fill = !Enabled ? Theme.Surface : Primary ? Theme.Accent : Selected || hovering ? Theme.AccentSurface : Theme.Input;
         using var shape = Theme.Rounded(new(0, 0, Width - 1, Height - 1), 8);
         using var brush = new SolidBrush(fill); e.Graphics.FillPath(brush, shape);
-        using var pen = new Pen(Selected || Primary && Enabled ? Theme.Accent : Theme.Border); e.Graphics.DrawPath(pen, shape);
-        var color = !Enabled ? Theme.Muted : Primary ? Theme.Background : Destructive ? Color.FromArgb(247, 131, 144) : Selected ? Theme.Accent : Theme.Text;
-        var textBounds = ClientRectangle; if (Radio) textBounds.Width -= 14;
-        TextRenderer.DrawText(e.Graphics, Text, Font, textBounds, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-        if (Radio) { using var dot = new SolidBrush(Selected ? Theme.Accent : Theme.Border); e.Graphics.FillEllipse(dot, Width - 18, Height / 2 - 3, 6, 6); }
-        if (Focused) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -5, -5), color, fill);
+        var border = Focused && ShowFocusCues ? Theme.Text : Selected || Primary && Enabled ? Theme.Accent : Theme.Border;
+        using var pen = new Pen(border); e.Graphics.DrawPath(pen, shape);
+        var color = !Enabled ? Theme.Muted : Primary ? Theme.OnAccent : Destructive ? Color.FromArgb(247, 131, 144) : Selected ? Theme.Accent : Theme.Text;
+        const TextFormatFlags measureFlags = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
+        const TextFormatFlags textFlags = measureFlags | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis;
+        if (Glyph is null)
+        {
+            TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, color, textFlags | TextFormatFlags.HorizontalCenter);
+            return;
+        }
+        const int iconSize = 16;
+        var gap = Text.Length == 0 ? 0 : 8;
+        var textWidth = Text.Length == 0 ? 0 : Math.Min(
+            TextRenderer.MeasureText(e.Graphics, Text, Font, new Size(int.MaxValue, int.MaxValue), measureFlags).Width,
+            Math.Max(0, Width - iconSize - gap - 16));
+        var left = (Width - iconSize - gap - textWidth) / 2;
+        Ui.DrawIcon(e.Graphics, Glyph, new(left, (Height - iconSize) / 2, iconSize, iconSize), color);
+        if (textWidth > 0)
+        {
+            var textLeft = left + iconSize + gap;
+            TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle(textLeft, 0, textWidth, Height), color, textFlags);
+        }
     }
 }
 

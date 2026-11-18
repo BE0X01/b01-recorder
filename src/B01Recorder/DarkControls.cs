@@ -8,23 +8,26 @@ namespace B01Recorder;
 internal sealed class DarkCheck : CheckBox
 {
     public DarkCheck() { AutoSize = true; Cursor = Cursors.Hand; SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true); }
-    public override Size GetPreferredSize(Size proposedSize) { var text = TextRenderer.MeasureText(Text, Font); return new(text.Width + 29, Math.Max(23, text.Height + 4)); }
+    public override Size GetPreferredSize(Size proposedSize) { var text = TextRenderer.MeasureText(Text, Font); return new(text.Width + 28, Math.Max(24, text.Height + 4)); }
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.Clear(Parent?.BackColor ?? Theme.Surface); e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        var y = (Height - 17) / 2; using var shape = Theme.Rounded(new(0, y, 17, 17), 4);
+        var y = (Height - 16) / 2; using var shape = Theme.Rounded(new(0, y, 16, 16), 4);
         using var fill = new SolidBrush(Checked && Enabled ? Theme.Accent : Theme.Input); e.Graphics.FillPath(fill, shape);
-        using var border = new Pen(Checked && Enabled ? Theme.Accent : Theme.Border); e.Graphics.DrawPath(border, shape);
-        if (Checked) { using var check = new Pen(Enabled ? Theme.Background : Theme.Muted, 2); e.Graphics.DrawLines(check, [new(4, y + 8), new(7, y + 11), new(13, y + 5)]); }
-        TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle(26, 0, Width - 26, Height), Enabled ? Theme.Text : Theme.Muted, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-        if (Focused) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -1, -1));
+        var edge = Focused && ShowFocusCues ? Theme.Text : Checked && Enabled ? Theme.Accent : Theme.Border;
+        using var border = new Pen(edge); e.Graphics.DrawPath(border, shape);
+        if (Checked) Ui.DrawIcon(e.Graphics, "Check", new(0, y, 16, 16), Enabled ? Theme.OnAccent : Theme.Muted);
+        TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle(24, 0, Width - 24, Height), Enabled ? Theme.Text : Theme.Muted, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
 }
 
 internal sealed class DarkCombo : Control
 {
+    private const int ItemHeight = 32;
     private int selectedIndex = -1;
     private ToolStripDropDown? popup;
+    private bool? openedWhenPressed;
+    private bool closedOnAnchorPress;
     public event EventHandler? SelectedIndexChanged;
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public ComboItems Items { get; }
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public int SelectedIndex
@@ -42,12 +45,32 @@ internal sealed class DarkCombo : Control
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.Clear(Parent?.BackColor ?? Theme.Surface); e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        using var shape = Theme.Rounded(new(0, 0, Width - 1, Height - 1), 7); using var fill = new SolidBrush(Theme.Input); e.Graphics.FillPath(fill, shape);
+        using var shape = Theme.Rounded(new(0, 0, Width - 1, Height - 1), 8); using var fill = new SolidBrush(Theme.Input); e.Graphics.FillPath(fill, shape);
         using var edge = new Pen(Focused ? Theme.Accent : Theme.Border); e.Graphics.DrawPath(edge, shape);
-        TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle(10, 0, Width - 36, Height), Enabled ? Theme.Text : Theme.Muted, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-        using var arrow = new Pen(Enabled ? Theme.Muted : Theme.Border, 1.5f); e.Graphics.DrawLines(arrow, [new(Width - 22, Height / 2 - 2), new(Width - 18, Height / 2 + 2), new(Width - 14, Height / 2 - 2)]);
+        TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle(12, 0, Math.Max(1, Width - 44), Height), Enabled ? Theme.Text : Theme.Muted, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        Ui.DrawIcon(e.Graphics, "ChevronDown", new(Width - 28, (Height - 16) / 2, 16, 16), Theme.Muted);
     }
-    protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); if (e.Button == MouseButtons.Left) { Focus(); Open(); } }
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+        if (e.Button == MouseButtons.Left)
+        {
+            openedWhenPressed = popup?.Visible == true || closedOnAnchorPress;
+            closedOnAnchorPress = false;
+        }
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        if (e.Button != MouseButtons.Left) return;
+        var wasOpen = openedWhenPressed;
+        openedWhenPressed = null;
+        if (wasOpen is null || !ClientRectangle.Contains(e.Location)) return;
+        if (wasOpen.Value) { popup?.Close(); return; }
+        Focus();
+        Open();
+    }
     protected override bool IsInputKey(Keys keyData) => keyData is Keys.Up or Keys.Down || base.IsInputKey(keyData);
     protected override void OnKeyDown(KeyEventArgs e)
     {
@@ -60,8 +83,15 @@ internal sealed class DarkCombo : Control
         if (!Enabled || Items.Count == 0) return;
         if (popup?.Visible == true) { popup.Close(); return; }
         popup?.Dispose();
-        var list = new PopupList(this) { Size = new(Width, Math.Min(9, Items.Count) * 30 + 2), Font = Font };
+        var list = new PopupList(this) { Size = new(Width, Math.Min(9, Items.Count) * ItemHeight + 2), Font = Font };
         popup = new ToolStripDropDown { Padding = Padding.Empty, Margin = Padding.Empty, BackColor = Theme.Input, AutoSize = false, Size = list.Size };
+        popup.Closing += (_, e) =>
+        {
+            if (e.CloseReason != ToolStripDropDownCloseReason.AppClicked) return;
+            // The menu filter can close the popup before MouseDown reaches this control.
+            closedOnAnchorPress = true;
+            BeginInvoke(() => closedOnAnchorPress = false);
+        };
         popup.Items.Add(new ToolStripControlHost(list) { Margin = Padding.Empty, Padding = Padding.Empty, AutoSize = false, Size = list.Size });
         popup.Show(this, new Point(0, Height + 4)); list.Focus();
     }
@@ -83,21 +113,21 @@ internal sealed class DarkCombo : Control
             this.owner = owner; hovered = Math.Max(0, owner.SelectedIndex); DoubleBuffered = true; BackColor = Theme.Input; ForeColor = Theme.Text; TabStop = true;
             Controls.Add(scroll); scroll.ValueChanged += (_, _) => Invalidate();
         }
-        protected override void OnResize(EventArgs e) { base.OnResize(e); scroll.Bounds = new(Width - 12, 1, 11, Height - 2); scroll.Viewport = Height; scroll.Maximum = Math.Max(0, owner.Items.Count * 30 - Height + 2); scroll.Visible = scroll.Maximum > 0; }
+        protected override void OnResize(EventArgs e) { base.OnResize(e); scroll.Bounds = new(Width - 12, 1, 11, Height - 2); scroll.Viewport = Height; scroll.Maximum = Math.Max(0, owner.Items.Count * ItemHeight - Height + 2); scroll.Visible = scroll.Maximum > 0; }
         protected override void OnPaint(PaintEventArgs e)
         {
-            for (var i = Math.Max(0, scroll.Value / 30); i < owner.Items.Count; i++)
+            for (var i = Math.Max(0, scroll.Value / ItemHeight); i < owner.Items.Count; i++)
             {
-                var y = 1 + i * 30 - scroll.Value; if (y > Height) break;
-                var r = new Rectangle(1, y, Width - (scroll.Visible ? 13 : 2), 30);
+                var y = 1 + i * ItemHeight - scroll.Value; if (y > Height) break;
+                var r = new Rectangle(1, y, Width - (scroll.Visible ? 13 : 2), ItemHeight);
                 if (i == hovered || i == owner.SelectedIndex) { using var brush = new SolidBrush(Theme.AccentSurface); e.Graphics.FillRectangle(brush, r); }
-                TextRenderer.DrawText(e.Graphics, owner.Items[i].ToString(), Font, Rectangle.Inflate(r, -10, 0), i == owner.SelectedIndex ? Theme.Accent : Theme.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+                TextRenderer.DrawText(e.Graphics, owner.Items[i].ToString(), Font, Rectangle.Inflate(r, -12, 0), i == owner.SelectedIndex ? Theme.Accent : Theme.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             }
             using var edge = new Pen(Theme.Border); e.Graphics.DrawRectangle(edge, 0, 0, Width - 1, Height - 1);
         }
-        protected override void OnMouseMove(MouseEventArgs e) { var next = (e.Y - 1 + scroll.Value) / 30; if (next != hovered) { hovered = next; Invalidate(); } base.OnMouseMove(e); }
-        protected override void OnMouseDown(MouseEventArgs e) { if (e.Button == MouseButtons.Left) Choose((e.Y - 1 + scroll.Value) / 30); base.OnMouseDown(e); }
-        protected override void OnMouseWheel(MouseEventArgs e) { scroll.Value -= Math.Sign(e.Delta) * 90; base.OnMouseWheel(e); }
+        protected override void OnMouseMove(MouseEventArgs e) { var next = (e.Y - 1 + scroll.Value) / ItemHeight; if (next != hovered) { hovered = next; Invalidate(); } base.OnMouseMove(e); }
+        protected override void OnMouseDown(MouseEventArgs e) { if (e.Button == MouseButtons.Left) Choose((e.Y - 1 + scroll.Value) / ItemHeight); base.OnMouseDown(e); }
+        protected override void OnMouseWheel(MouseEventArgs e) { scroll.Value -= Math.Sign(e.Delta) * (3 * ItemHeight); base.OnMouseWheel(e); }
         protected override bool IsInputKey(Keys keyData) => true;
         protected override void OnKeyDown(KeyEventArgs e)
         {
@@ -106,8 +136,8 @@ internal sealed class DarkCombo : Control
             if (e.KeyCode is Keys.Up or Keys.Down)
             {
                 hovered = Math.Clamp(hovered + (e.KeyCode == Keys.Up ? -1 : 1), 0, owner.Items.Count - 1);
-                if (hovered * 30 < scroll.Value) scroll.Value = hovered * 30;
-                if ((hovered + 1) * 30 > scroll.Value + Height) scroll.Value = (hovered + 1) * 30 - Height + 2;
+                if (hovered * ItemHeight < scroll.Value) scroll.Value = hovered * ItemHeight;
+                if ((hovered + 1) * ItemHeight > scroll.Value + Height) scroll.Value = (hovered + 1) * ItemHeight - Height + 2;
                 Invalidate();
             }
             e.Handled = true; base.OnKeyDown(e);
@@ -199,15 +229,14 @@ internal sealed class DarkNumber : Control
         edit.KeyPress += (_, e) => { if (!char.IsControl(e.KeyChar) && !char.IsDigit(e.KeyChar)) e.Handled = true; };
         edit.KeyDown += (_, e) => { if (e.KeyCode is Keys.Up or Keys.Down) { Value += e.KeyCode == Keys.Up ? 1 : -1; e.Handled = true; } };
     }
-    protected override void OnResize(EventArgs e) { base.OnResize(e); edit.Bounds = new(9, Math.Max(4, (Height - edit.PreferredHeight) / 2), Math.Max(1, Width - 34), edit.PreferredHeight); }
+    protected override void OnResize(EventArgs e) { base.OnResize(e); edit.Bounds = new(12, Math.Max(4, (Height - edit.PreferredHeight) / 2), Math.Max(1, Width - 36), edit.PreferredHeight); }
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.Clear(Parent?.BackColor ?? Theme.Surface); e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        using var shape = Theme.Rounded(new(0, 0, Width - 1, Height - 1), 7); using var fill = new SolidBrush(Theme.Input); using var border = new Pen(Theme.Border);
+        using var shape = Theme.Rounded(new(0, 0, Width - 1, Height - 1), 8); using var fill = new SolidBrush(Theme.Input); using var border = new Pen(Theme.Border);
         e.Graphics.FillPath(fill, shape); e.Graphics.DrawPath(border, shape);
-        using var pen = new Pen(Enabled ? Theme.Muted : Theme.Border, 1.2f);
-        e.Graphics.DrawLines(pen, [new(Width - 20, 12), new(Width - 16, 8), new(Width - 12, 12)]);
-        e.Graphics.DrawLines(pen, [new(Width - 20, Height - 12), new(Width - 16, Height - 8), new(Width - 12, Height - 12)]);
+        Ui.DrawIcon(e.Graphics, "ChevronUp", new(Width - 28, (Height / 2 - 16) / 2, 16, 16), Theme.Muted);
+        Ui.DrawIcon(e.Graphics, "ChevronDown", new(Width - 28, Height / 2 + (Height / 2 - 16) / 2, 16, 16), Theme.Muted);
     }
     protected override void OnMouseDown(MouseEventArgs e) { if (e.X >= Width - 28) Value += e.Y < Height / 2 ? 1 : -1; else edit.Focus(); base.OnMouseDown(e); }
 }

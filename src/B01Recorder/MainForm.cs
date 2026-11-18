@@ -1,99 +1,90 @@
 using System.Diagnostics;
+using static B01Recorder.Ui;
 
 namespace B01Recorder;
 
 internal sealed class MainForm : Form
 {
-    private readonly Settings settings = Settings.Load();
+    private readonly Settings settings;
     private readonly bool persistSettings;
+    private readonly Dictionary<Control, (string English, string Korean)> captions = [];
     private readonly DarkCombo targets = new([]);
     private readonly DarkCombo format = new(["MP4", "GIF", "WEBP"]);
-    private readonly DarkNumber fps = new() { Minimum = 1, Maximum = 120, Width = 76 };
-    private readonly QualitySlider quality = new();
-    private readonly Label qualityLabel = Label("");
-    private readonly CheckBox audio = Check("System audio");
-    private readonly CheckBox cursor = Check("Capture cursor");
-    private readonly TextBox folder = new() { ReadOnly = true, BorderStyle = BorderStyle.FixedSingle, BackColor = Theme.Input, ForeColor = Theme.Text, Dock = DockStyle.Fill };
-    private readonly TextBox fileNamePattern = new() { BorderStyle = BorderStyle.FixedSingle, BackColor = Theme.Input, ForeColor = Theme.Text, Dock = DockStyle.Fill, MaxLength = 180, AccessibleName = "Recording filename pattern" };
-    private readonly Label fileNameExample = Label("", true);
-    private readonly ToolTip fileNameHelp = new() { AutoPopDelay = 30000, InitialDelay = 300, ReshowDelay = 100 };
-    private readonly Label targetLabel = Label("", true);
-    private readonly Label status = Label("", true);
-    private readonly Label badge = Label("●  READY");
-    private readonly DarkButton start = new("●  Record") { Primary = true, Width = 148, Height = 38 };
-    private readonly DarkButton select = new("Refresh") { Width = 88, Dock = DockStyle.Fill, Margin = new(8, 0, 0, 0) };
-    private readonly DarkButton[] modeButtons = [new("Full screen"), new("Window"), new("Region")];
-    private readonly TableLayoutPanel settingsPanel = new() { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Margin = new(0) };
-    private readonly SlimFlowPanel gallery = new() { Dock = DockStyle.Fill, WrapContents = true, BackColor = Theme.Surface, Margin = new(0) };
-    private readonly MediaPreview preview = new() { Dock = DockStyle.Fill };
-    private readonly Label fileLabel = Label("No recording selected");
-    private readonly Label countLabel = Label("0 files", true);
-    private readonly DarkButton play = new("Play in app") { Width = 106 };
-    private readonly ToolStripMenuItem external = new("Open externally");
-    private readonly ToolStripMenuItem reveal = new("Show in folder");
-    private readonly ToolStripMenuItem delete = new("Delete") { ForeColor = Color.FromArgb(247, 131, 144) };
-    private readonly DarkButton more = new("More ···") { Width = 86 };
-    private readonly ContextMenuStrip fileMenu = new() { BackColor = Theme.Input, ForeColor = Theme.Text, ShowImageMargin = false };
+    private readonly DarkNumber fps = new() { Minimum = 1, Maximum = 120, Size = new(80, 36) };
+    private readonly Label formatHint = Line();
+    private readonly CheckBox audio = new DarkCheck();
+    private readonly CheckBox cursor = new DarkCheck();
+    private readonly Label folder = new()
+    {
+        Dock = DockStyle.Fill, AutoEllipsis = true, UseMnemonic = false, TextAlign = ContentAlignment.MiddleLeft,
+        Margin = Padding.Empty, ForeColor = Theme.Text
+    };
+    private readonly TextBox fileNamePattern = new() { BorderStyle = BorderStyle.None, BackColor = Theme.Input, ForeColor = Theme.Text, MaxLength = 180 };
+    private readonly Label fileNameExample = Line();
+    private readonly ToolTip help = new() { AutoPopDelay = 30000, InitialDelay = 300, ReshowDelay = 100 };
+    private readonly ContextMenuStrip pathMenu = new();
+    private readonly Label targetLabel = Line();
+    private readonly Label status = Line();
+    private readonly Label badge = Line();
+    private readonly DarkButton gear = new("") { Glyph = "Gear" };
+    private readonly DarkButton start = new("") { Primary = true, Dock = DockStyle.Fill, Margin = Padding.Empty };
+    private readonly DarkButton select = new("") { Dock = DockStyle.Fill, Margin = new(8, 0, 0, 0) };
+    private readonly DarkButton[] modeButtons = [new("") { Glyph = "Desktop" }, new("") { Glyph = "Window" }, new("") { Glyph = "Crop" }];
+    private readonly DarkButton browse = new("") { Glyph = "FolderOpen", Dock = DockStyle.Fill, Margin = new(8, 0, 0, 0) };
+    private readonly DarkButton info = new("") { Glyph = "CircleInfo", Dock = DockStyle.Fill, Margin = new(8, 0, 0, 0) };
+    private readonly TableLayoutPanel settingsPanel = new() { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Margin = Padding.Empty };
     private readonly SelectionOverlay overlay = new();
     private readonly System.Windows.Forms.Timer timer = new() { Interval = 200 };
     private readonly Stopwatch clock = new();
-    private CancellationTokenSource? libraryRefresh;
     private CaptureTarget? target;
     private Recorder? recorder;
-    private string? selectedFile;
+    private (string English, string Korean) statusText = ("Choose a source to start recording.", "녹화할 대상을 선택하세요.");
     private int captureMode;
     private bool wasMaximized;
     private bool busy, closing, picking, released, settingsSaved;
 
     public MainForm(Settings? initialSettings = null, bool persistSettings = true)
     {
-        if (initialSettings is not null) settings = initialSettings;
+        settings = initialSettings ?? Settings.Load();
         this.persistSettings = persistSettings;
+        Ui.Language = settings.Language;
         Text = "B01 Recorder";
-        ClientSize = new(1000, 650); MinimumSize = new(900, 650);
+        ClientSize = new(512, 608);
+        MinimumSize = new(480, 648);
         DoubleBuffered = true;
         StartPosition = FormStartPosition.CenterScreen;
-        BackColor = Theme.Background; ForeColor = Theme.Text;
-        Font = new("Segoe UI", 9); AutoScaleMode = AutoScaleMode.Dpi;
+        BackColor = Theme.Background;
+        ForeColor = Theme.Text;
+        AutoScaleMode = AutoScaleMode.Dpi;
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!);
-        settings.Recordings ??= [];
 
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(16), ColumnCount = 1, RowCount = 3 };
-        root.RowStyles.Add(new(SizeType.Absolute, 54)); root.RowStyles.Add(new(SizeType.Percent, 100)); root.RowStyles.Add(new(SizeType.Absolute, 48));
-        root.Controls.Add(BuildHeader(), 0, 0);
-        var body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new(0) };
-        body.ColumnStyles.Add(new(SizeType.Percent, 58)); body.ColumnStyles.Add(new(SizeType.Percent, 42));
-        body.RowStyles.Add(new(SizeType.Percent, 100));
-        body.Controls.Add(BuildLibrary(), 0, 0); body.Controls.Add(settingsPanel, 1, 0);
-        root.Controls.Add(body, 0, 1); root.Controls.Add(BuildFooter(), 0, 2); Controls.Add(root);
-        BuildSettings();
+        var root = Stack((BuildHeader(), 56), (settingsPanel, 0), (BuildFooter(), 40));
+        root.Padding = new(16);
+        Controls.Add(root);
+        BuildRecordingControls();
 
         format.SelectedItem = new[] { "MP4", "GIF", "WEBP" }.Contains(settings.Format) ? settings.Format : "MP4";
-        fps.Value = Math.Clamp(settings.Fps, 1, 120); quality.Value = Math.Clamp(settings.Quality, 1, 100);
-        audio.Checked = settings.Audio; cursor.Checked = settings.Cursor; folder.Text = settings.Folder;
+        fps.Value = Math.Clamp(settings.Fps, 1, 120);
+        audio.Checked = settings.Audio;
+        cursor.Checked = settings.Cursor;
+        folder.Text = settings.Folder;
         fileNamePattern.Text = settings.FileNamePattern;
         fileNamePattern.TextChanged += (_, _) => UpdateFileNameExample();
-        folder.TextChanged += (_, _) => UpdateFileNameExample();
-        targets.SelectedIndexChanged += (_, _) => { target = targets.SelectedItem as CaptureTarget; UpdateTarget(); };
+        folder.TextChanged += (_, _) => { UpdateFileNameExample(); UpdateFolderTooltip(); };
+        targets.SelectedIndexChanged += (_, _) => { if (captureMode != 2) target = targets.SelectedItem as CaptureTarget; UpdateTarget(); };
         select.Click += (_, _) => { if (captureMode == 2) PickRegion(); else RefreshTargets(); };
-        format.SelectedIndexChanged += (_, _) => UpdateFormat(); quality.ValueChanged += (_, _) => UpdateFormat();
+        gear.Click += (_, _) => ShowSettings();
+        format.SelectedIndexChanged += (_, _) => UpdateFormat();
         start.Click += async (_, _) => { if (recorder is null) await StartRecording(); else await StopRecording(); };
-        play.Click += async (_, _) => { if (selectedFile is not null) await preview.LoadAsync(selectedFile, true); };
-        external.Click += (_, _) => SafeAction(() => { if (selectedFile is not null) Process.Start(new ProcessStartInfo(selectedFile) { UseShellExecute = true }); });
-        reveal.Click += (_, _) => SafeAction(() =>
-        {
-            if (selectedFile is null) return;
-            var info = new ProcessStartInfo("explorer.exe") { UseShellExecute = true }; info.Arguments = "/select,\"" + selectedFile + "\""; Process.Start(info);
-        });
-        delete.Click += async (_, _) => await DeleteSelectedAsync();
         timer.Tick += async (_, _) =>
         {
             UpdateOverlay();
-            if (recorder is null || busy) return;
-            status.Text = $"● Recording  {clock.Elapsed:hh\\:mm\\:ss} · Click Stop & save when finished.";
+            if (busy || closing || recorder is null) return;
+            var duration = clock.Elapsed.ToString(@"hh\:mm\:ss");
+            SetStatus($"Recording  {duration}", $"녹화 중  {duration}");
             if (recorder.HasExited) await StopRecording();
         };
-        Shown += async (_, _) => { timer.Start(); await RefreshLibraryAsync(); };
+        Shown += (_, _) => timer.Start();
         FormClosing += async (_, e) =>
         {
             if (closing) { RememberWindow(); return; }
@@ -104,11 +95,18 @@ internal sealed class MainForm : Form
         };
         FormClosed += (_, _) => SaveSettingsOnExit();
         Resize += (_, _) => { if (WindowState != FormWindowState.Minimized) wasMaximized = WindowState == FormWindowState.Maximized; };
-        SetMode(Math.Clamp(settings.CaptureMode, 0, 2)); UpdateFormat(); UpdateLibraryActions();
-        status.Text = "Ready · Choose a source, then click Record.";
+        SetMode(Math.Clamp(settings.CaptureMode, 0, 2));
+        ApplyPreferences();
     }
 
     protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); Theme.DarkTitle(this); }
+
+    protected override void WndProc(ref Message message)
+    {
+        base.WndProc(ref message);
+        if (message.Msg == 0x001A && settings?.ThemeMode == ThemeMode.System) Theme.Apply(ThemeMode.System, this);
+    }
+
     protected override void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
@@ -116,314 +114,471 @@ internal sealed class MainForm : Form
         var saved = new Rectangle(x, y, settings.WindowWidth, settings.WindowHeight);
         var screen = Screen.AllScreens.FirstOrDefault(s => s.WorkingArea.Contains(saved)) ?? Screen.FromRectangle(saved);
         var area = screen.WorkingArea;
-        var width = Math.Min(Math.Max(saved.Width, MinimumSize.Width), area.Width);
-        var height = Math.Min(Math.Max(saved.Height, MinimumSize.Height), area.Height);
+        var legacyLayout = !settings.CompactLayout;
+        var width = Math.Min(Math.Max(legacyLayout ? Width : saved.Width, MinimumSize.Width), area.Width);
+        var height = Math.Min(Math.Max(legacyLayout ? Height : saved.Height, MinimumSize.Height), area.Height);
         StartPosition = FormStartPosition.Manual;
         Bounds = new Rectangle(Math.Clamp(x, area.Left, area.Right - width), Math.Clamp(y, area.Top, area.Bottom - height), width, height);
         if (settings.WindowMaximized) WindowState = FormWindowState.Maximized;
     }
+
     private void RememberWindow()
     {
         var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
         settings.WindowX = bounds.X; settings.WindowY = bounds.Y;
         settings.WindowWidth = bounds.Width; settings.WindowHeight = bounds.Height;
-        // Closing a minimized window should reopen its normal or maximized state.
         settings.WindowMaximized = WindowState == FormWindowState.Minimized ? wasMaximized : WindowState == FormWindowState.Maximized;
+        settings.CompactLayout = true;
     }
-    private void UpdateFileNameExample()
+
+    private Control BuildHeader()
+    {
+        var header = Grid(4);
+        header.Margin = new(0, 0, 0, 16);
+        header.ColumnStyles.Add(new(SizeType.Absolute, 40));
+        header.ColumnStyles.Add(new(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new(SizeType.Absolute, 100));
+        header.ColumnStyles.Add(new(SizeType.Absolute, 48));
+        var logo = new PictureBox { Dock = DockStyle.Fill, Margin = Padding.Empty, AccessibleName = "B01 Recorder" };
+        logo.Paint += (_, e) =>
+        {
+            var box = new Rectangle(0, (logo.Height - 40) / 2, 40, 40);
+            using var shape = Theme.Rounded(box, 12);
+            using var fill = new SolidBrush(Theme.AccentSurface);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            e.Graphics.FillPath(fill, shape);
+            Ui.DrawIcon(e.Graphics, "CameraRecord", new Rectangle(8, box.Y + 8, 24, 24), Theme.Accent);
+        };
+        var title = Line(muted: false);
+        title.Text = "B01 Recorder";
+        title.Font = Ui.Font(16, FontStyle.Bold);
+        title.Margin = new(12, 0, 0, 0);
+        var pill = new Card { Dock = DockStyle.Fill, Margin = new(0, 4, 0, 4), Padding = Padding.Empty, BackColor = Theme.AccentSurface };
+        badge.TextAlign = ContentAlignment.MiddleCenter;
+        badge.BackColor = Color.Transparent;
+        badge.Font = Ui.Font(Ui.SmallPoints);
+        badge.ForeColor = Theme.Accent;
+        pill.Controls.Add(badge);
+        gear.Dock = DockStyle.Fill;
+        gear.Margin = new(8, 0, 0, 0);
+        header.Controls.Add(logo, 0, 0);
+        header.Controls.Add(title, 1, 0);
+        header.Controls.Add(pill, 2, 0);
+        header.Controls.Add(gear, 3, 0);
+        return header;
+    }
+
+    private Control BuildFooter()
+    {
+        var footer = Grid(2);
+        footer.ColumnStyles.Add(new(SizeType.Percent, 100));
+        footer.ColumnStyles.Add(new(SizeType.Absolute, 128));
+        status.Margin = new(0, 0, 12, 0);
+        footer.Controls.Add(status, 0, 0);
+        footer.Controls.Add(start, 1, 0);
+        return footer;
+    }
+
+    private void BuildRecordingControls()
+    {
+        var modes = Grid(3);
+        for (var i = 0; i < modeButtons.Length; i++)
+        {
+            var index = i;
+            modes.ColumnStyles.Add(new(SizeType.Percent, 100f / modeButtons.Length));
+            var button = modeButtons[i];
+            button.AccessibleRole = AccessibleRole.RadioButton;
+            button.Dock = DockStyle.Fill;
+            button.Margin = new(i == 0 ? 0 : 8, 0, 0, 0);
+            button.Click += (_, _) => SetMode(index);
+            modes.Controls.Add(button, i, 0);
+        }
+        Bind(modeButtons[0], "Full screen", "전체 화면");
+        Bind(modeButtons[1], "Window", "창");
+        Bind(modeButtons[2], "Region", "영역");
+        var picker = Pair(targets, select, 136);
+        picker.Margin = new(0, 8, 0, 0);
+        var capture = Stack((modes, 36), (picker, 44), (targetLabel, 24));
+        AddCard("Capture source", "캡처 대상", 160, capture);
+
+        format.Width = 108;
+        format.Height = 36;
+        var fpsLabel = Line();
+        fpsLabel.Text = "FPS";
+        fpsLabel.Size = new(44, 36);
+        var encodeRow = Row(format, fps, fpsLabel);
+        var toggles = Row(audio, cursor);
+        audio.Margin = cursor.Margin = new(0, 4, 16, 0);
+        Bind(audio, "System audio", "시스템 오디오");
+        Bind(cursor, "Capture cursor", "마우스 커서");
+        AddCard("Recording", "녹화", 144, Stack((encodeRow, 36), (formatHint, 24), (toggles, 28)));
+
+        var nameLabel = Line();
+        Bind(nameLabel, "Filename pattern", "파일 이름 형식");
+        var folderBox = new Card { BackColor = Theme.Input, Margin = Padding.Empty, Padding = new(12, 4, 12, 4) };
+        folderBox.Controls.Add(folder);
+        var folderRow = Pair(folderBox, browse, 44);
+        var nameRow = Pair(InputBox(fileNamePattern), info, 44);
+        AddCard("Save to", "저장 위치", 176, Stack((folderRow, 36), (nameLabel, 24), (nameRow, 36), (fileNameExample, 24)));
+        browse.Click += (_, _) =>
+        {
+            using var dialog = new FolderBrowserDialog { InitialDirectory = folder.Text, Description = T("Recording output folder", "녹화 파일을 저장할 폴더") };
+            if (dialog.ShowDialog(this) == DialogResult.OK) folder.Text = dialog.SelectedPath;
+        };
+        folder.DoubleClick += (_, _) => OpenOutputFolder();
+        var copyPath = pathMenu.Items.Add("");
+        pathMenu.Opening += (_, _) =>
+        {
+            pathMenu.BackColor = Theme.Input;
+            copyPath.ForeColor = Theme.Text;
+            copyPath.Text = T("Copy path", "경로 복사");
+        };
+        copyPath.Click += (_, _) =>
+        {
+            if (folder.Text.Length == 0) return;
+            try { Clipboard.SetText(folder.Text); }
+            catch (System.Runtime.InteropServices.ExternalException ex) { DarkDialog.Show(this, ex.Message); }
+        };
+        folder.ContextMenuStrip = pathMenu;
+        info.Click += (_, _) => DarkDialog.Show(this, RecordingFileName.Help);
+        settingsPanel.RowStyles.Add(new(SizeType.Percent, 100));
+    }
+
+    private void OpenOutputFolder()
     {
         try
         {
-            fileNameExample.Text = "Example: " + Path.GetFileName(RecordingFileName.AvailablePath(folder.Text, fileNamePattern.Text, DateTime.Now, format.Text));
-            fileNameExample.ForeColor = Theme.Muted;
+            Directory.CreateDirectory(folder.Text);
+            Process.Start(new ProcessStartInfo(folder.Text) { UseShellExecute = true });
         }
-        catch (ArgumentException ex) { fileNameExample.Text = ex.Message; fileNameExample.ForeColor = Theme.Muted; }
-        fileNameHelp.SetToolTip(fileNameExample, fileNameExample.Text);
+        catch (Exception ex) { ShowError(ex); }
     }
-    private Control BuildHeader()
-    {
-        var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 2, Margin = new(0) };
-        header.ColumnStyles.Add(new(SizeType.Absolute, 46)); header.ColumnStyles.Add(new(SizeType.Percent, 100)); header.ColumnStyles.Add(new(SizeType.Absolute, 106));
-        header.RowStyles.Add(new(SizeType.Percent, 100));
-        var logo = new PictureBox { Image = Theme.Logo(32), Size = new(32, 32), SizeMode = PictureBoxSizeMode.Zoom, Margin = new(0, 4, 0, 0) };
-        header.RowCount = 1; header.Controls.Add(logo, 0, 0);
-        var title = Label("B01 Recorder"); title.Font = new("Segoe UI Semibold", 18); header.Controls.Add(title, 1, 0);
-        badge.BackColor = Theme.AccentSurface; badge.ForeColor = Theme.Accent; badge.Padding = new(10, 7, 10, 7); badge.AutoSize = true;
-        header.Controls.Add(badge, 2, 0); return header;
-    }
-    private Control BuildLibrary()
-    {
-        var card = new Card { Dock = DockStyle.Fill, Margin = new(0, 0, 12, 0), Padding = new(12) };
-        var content = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Margin = new(0) };
-        content.RowStyles.Add(new(SizeType.Absolute, 34)); content.RowStyles.Add(new(SizeType.Percent, 58));
-        content.RowStyles.Add(new(SizeType.Absolute, 30)); content.RowStyles.Add(new(SizeType.Absolute, 46)); content.RowStyles.Add(new(SizeType.Percent, 42));
-        var heading = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new(0) };
-        heading.ColumnStyles.Add(new(SizeType.Percent, 100)); heading.ColumnStyles.Add(new(SizeType.Absolute, 60));
-        heading.Controls.Add(Label("RECENT RECORDINGS", true), 0, 0); heading.Controls.Add(countLabel, 1, 0);
-        content.Controls.Add(heading, 0, 0); content.Controls.Add(preview, 0, 1);
-        fileLabel.Dock = DockStyle.Fill; fileLabel.AutoEllipsis = true; fileLabel.AutoSize = false; fileLabel.TextAlign = ContentAlignment.MiddleLeft;
-        fileMenu.Items.AddRange([external, reveal, delete]);
-        more.Click += (_, _) => fileMenu.Show(more, new Point(0, more.Height));
-        content.Controls.Add(fileLabel, 0, 2); content.Controls.Add(Row(play, more), 0, 3); content.Controls.Add(gallery, 0, 4);
-        card.Controls.Add(content); return card;
-    }
-    private Control BuildFooter()
-    {
-        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Padding = new(0, 8, 0, 0), Margin = new(0) };
-        footer.ColumnStyles.Add(new(SizeType.Percent, 100)); footer.ColumnStyles.Add(new(SizeType.Absolute, 156)); footer.RowStyles.Add(new(SizeType.Percent, 100));
-        status.AutoSize = false; status.AutoEllipsis = true; status.Dock = DockStyle.Fill; status.TextAlign = ContentAlignment.MiddleLeft;
-        footer.Controls.Add(status, 0, 0); footer.Controls.Add(Row(start), 1, 0); return footer;
-    }
-    private void BuildSettings()
-    {
-        var modes = EqualRow(modeButtons);
-        for (var i = 0; i < modeButtons.Length; i++) { var index = i; modeButtons[i].Radio = true; modeButtons[i].AccessibleRole = AccessibleRole.RadioButton; modeButtons[i].Click += (_, _) => SetMode(index); }
-        targets.Dock = DockStyle.Fill;
-        var picker = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new(0) };
-        picker.ColumnStyles.Add(new(SizeType.Percent, 100)); picker.ColumnStyles.Add(new(SizeType.Absolute, 98)); picker.RowStyles.Add(new(SizeType.Percent, 100));
-        picker.Controls.Add(targets, 0, 0); picker.Controls.Add(select, 1, 0);
-        targetLabel.AutoSize = false; targetLabel.AutoEllipsis = true; targetLabel.Dock = DockStyle.Fill;
-        AddCard("CAPTURE SOURCE", 132, Stack((modes, 30), (picker, 30), (targetLabel, 20)));
 
-        format.Width = 100; fps.Width = 70;
-        format.AccessibleName = "Output format"; fps.AccessibleName = "Frames per second";
-        quality.Dock = DockStyle.Fill;
-        qualityLabel.AutoSize = false; qualityLabel.Dock = DockStyle.Fill;
-        AddCard("RECORDING", 164, Stack((Row(format, fps, Label("FPS", true)), 34), (qualityLabel, 22), (quality, 24), (Row(audio, cursor), 28)));
+    private void ShowSettings()
+    {
+        using var dialog = new Form { Text = T("Settings", "설정"), StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog, ClientSize = new(388, 232), BackColor = Theme.Background,
+            ForeColor = Theme.Text, ShowInTaskbar = false, MaximizeBox = false, MinimizeBox = false };
+        var language = new DarkCombo(["English", "한국어"]) { SelectedIndex = (int)settings.Language, AccessibleName = T("Language", "언어") };
+        var theme = new DarkCombo([T("System", "시스템"), T("Light", "라이트"), T("Dark", "다크")])
+            { SelectedIndex = (int)settings.ThemeMode, AccessibleName = T("Theme", "테마") };
+        var dim = new DarkCheck { Text = T("Dim background during region selection", "영역을 지정할 때 배경 어둡게"), Checked = settings.DimRegionPicker };
+        var save = new DarkButton(T("Apply", "적용")) { Primary = true, Width = 88, DialogResult = DialogResult.OK };
+        var cancel = new DarkButton(T("Cancel", "취소")) { Width = 88, DialogResult = DialogResult.Cancel };
+        var actions = Row(save, cancel);
+        actions.FlowDirection = FlowDirection.RightToLeft;
+        actions.Margin = new(0, 12, 0, 0);
+        var languageLabel = Line(); languageLabel.Text = T("Language", "언어");
+        var themeLabel = Line(); themeLabel.Text = T("Theme", "테마");
+        var body = Stack((languageLabel, 24), (language, 36), (themeLabel, 28), (theme, 36), (dim, 28), (actions, 48));
+        body.Padding = new(16);
+        dialog.Controls.Add(body);
+        dialog.AcceptButton = save;
+        dialog.CancelButton = cancel;
+        Theme.DarkTitle(dialog);
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        settings.Language = (UiLanguage)language.SelectedIndex;
+        settings.ThemeMode = (ThemeMode)theme.SelectedIndex;
+        settings.DimRegionPicker = dim.Checked;
+        ApplyPreferences();
+    }
 
-        var browse = new DarkButton("···") { Dock = DockStyle.Fill, Margin = new(6, 0, 0, 0), AccessibleName = "Choose output folder" };
-        var folderRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new(0) };
-        folderRow.ColumnStyles.Add(new(SizeType.Percent, 100)); folderRow.ColumnStyles.Add(new(SizeType.Absolute, 36));
-        folderRow.RowStyles.Add(new(SizeType.Percent, 100));
-        folderRow.Controls.Add(folder, 0, 0); folderRow.Controls.Add(browse, 1, 0);
-        fileNameHelp.SetToolTip(browse, "Choose output folder");
-        fileNameHelp.SetToolTip(folder, "Output folder · Double-click to open");
-        var nameRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new(0) };
-        nameRow.ColumnStyles.Add(new(SizeType.Percent, 100)); nameRow.ColumnStyles.Add(new(SizeType.Absolute, 26));
-        nameRow.RowStyles.Add(new(SizeType.Percent, 100));
-        var info = new Label { Text = "ⓘ", Font = new("Segoe UI Symbol", 12), ForeColor = Theme.Muted, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Margin = new(4, 0, 0, 0), AccessibleName = "Filename format help" };
-        nameRow.Controls.Add(fileNamePattern, 0, 0); nameRow.Controls.Add(info, 1, 0);
-        fileNameHelp.SetToolTip(info, RecordingFileName.Help);
-        fileNameExample.AutoSize = false; fileNameExample.AutoEllipsis = true; fileNameExample.Dock = DockStyle.Fill;
-        AddCard("SAVE TO", 168, Stack((folderRow, 30), (Label("Filename pattern", true), 20), (nameRow, 28), (fileNameExample, 22)));
-        browse.Click += async (_, _) =>
+    private void ApplyPreferences()
+    {
+        Ui.Language = settings.Language;
+        Theme.Apply(settings.ThemeMode, this);
+        foreach (var (control, label) in captions) control.Text = T(label.English, label.Korean);
+        gear.AccessibleName = T("Settings", "설정");
+        browse.AccessibleName = T("Choose output folder", "저장 폴더 선택");
+        info.AccessibleName = T("Filename format help", "파일 이름 형식 도움말");
+        targets.AccessibleName = T("Capture target", "캡처 대상");
+        format.AccessibleName = T("Output format", "저장 형식");
+        fps.AccessibleName = T("Frames per second", "초당 프레임 수");
+        fileNamePattern.AccessibleName = T("Recording filename pattern", "파일 이름 형식");
+        help.SetToolTip(gear, gear.AccessibleName);
+        help.SetToolTip(browse, browse.AccessibleName);
+        help.SetToolTip(info, info.AccessibleName);
+        UpdateFolderTooltip();
+        if (captureMode == 2)
         {
-            using var dialog = new FolderBrowserDialog { InitialDirectory = folder.Text, Description = "Recording output folder" };
-            if (dialog.ShowDialog(this) != DialogResult.OK) return;
-            folder.Text = dialog.SelectedPath; await RefreshLibraryAsync();
-        };
-        folder.DoubleClick += (_, _) => SafeAction(() => { Directory.CreateDirectory(folder.Text); Process.Start(new ProcessStartInfo(folder.Text) { UseShellExecute = true }); });
-        settingsPanel.RowStyles.Add(new(SizeType.Percent, 100));
+            if (target is not null) target = target with { Label = T("Selected region", "선택 영역") };
+            SetRegionHint();
+        }
+        else RefreshTargets(target);
+        UpdateFormat();
+        UpdateTarget();
+        SetBadge(T("Ready", "준비"));
+        status.Text = T(statusText.English, statusText.Korean);
     }
-    private void AddCard(string title, int height, Control content)
+
+    private void AddCard(string english, string korean, int height, Control content)
     {
         var card = new Card { Dock = DockStyle.Fill, Margin = new(0, 0, 0, 8), Padding = new(12) };
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = new(0) };
-        layout.RowStyles.Add(new(SizeType.Absolute, 20)); layout.RowStyles.Add(new(SizeType.Percent, 100));
-        layout.Controls.Add(Label(title, true), 0, 0); content.Dock = DockStyle.Fill; layout.Controls.Add(content, 0, 1); card.Controls.Add(layout);
-        var index = settingsPanel.Controls.Count; settingsPanel.RowStyles.Add(new(SizeType.Absolute, height)); settingsPanel.Controls.Add(card, 0, index);
+        var title = Line(muted: false);
+        title.Font = Ui.Font(Ui.BodyPoints, FontStyle.Bold);
+        Bind(title, english, korean);
+        card.Controls.Add(Stack((title, 24), (content, 0)));
+        var index = settingsPanel.Controls.Count;
+        settingsPanel.RowStyles.Add(new(SizeType.Absolute, height));
+        settingsPanel.Controls.Add(card, 0, index);
     }
+
+    private void Bind(Control control, string english, string korean) => captions.Add(control, (english, korean));
+
     private static TableLayoutPanel Stack(params (Control control, int height)[] rows)
     {
-        var result = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = rows.Length, Margin = new(0) };
-        for (var i = 0; i < rows.Length; i++) { result.RowStyles.Add(new(SizeType.Absolute, rows[i].height)); rows[i].control.Dock = DockStyle.Fill; result.Controls.Add(rows[i].control, 0, i); }
+        var result = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = rows.Length, Margin = Padding.Empty };
+        for (var i = 0; i < rows.Length; i++)
+        {
+            var (control, height) = rows[i];
+            result.RowStyles.Add(height == 0 ? new(SizeType.Percent, 100) : new(SizeType.Absolute, height));
+            control.Dock = DockStyle.Fill;
+            result.Controls.Add(control, 0, i);
+        }
         return result;
     }
-    private static TableLayoutPanel EqualRow(DarkButton[] buttons)
+
+    private static TableLayoutPanel Grid(int columns)
     {
-        var result = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = buttons.Length, RowCount = 1, Margin = new(0) };
-        result.RowStyles.Add(new(SizeType.Percent, 100));
-        for (var i = 0; i < buttons.Length; i++) { result.ColumnStyles.Add(new(SizeType.Percent, 100f / buttons.Length)); buttons[i].Dock = DockStyle.Fill; buttons[i].Margin = new(i == 0 ? 0 : 5, 0, 0, 0); result.Controls.Add(buttons[i], i, 0); }
-        return result;
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = columns, RowCount = 1, Margin = Padding.Empty };
+        grid.RowStyles.Add(new(SizeType.Percent, 100));
+        return grid;
     }
+
+    private static Control Pair(Control left, Control right, int width)
+    {
+        var row = Grid(2);
+        row.ColumnStyles.Add(new(SizeType.Percent, 100));
+        row.ColumnStyles.Add(new(SizeType.Absolute, width));
+        left.Dock = DockStyle.Fill;
+        left.Margin = Padding.Empty;
+        row.Controls.Add(left, 0, 0);
+        row.Controls.Add(right, 1, 0);
+        return row;
+    }
+
     private static FlowLayoutPanel Row(params Control[] children)
     {
-        var row = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new(0) };
-        foreach (var child in children) child.Margin = new(0, child is Label ? 7 : 0, 8, 0);
-        row.Controls.AddRange(children); return row;
+        var row = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = Padding.Empty };
+        foreach (var child in children) child.Margin = new(0, 0, 8, 0);
+        row.Controls.AddRange(children);
+        return row;
     }
-    private static Label Label(string text, bool muted = false) => new() { Text = text, UseMnemonic = false, ForeColor = muted ? Theme.Muted : Theme.Text, AutoSize = true, Margin = new(0, 2, 8, 0) };
-    private static CheckBox Check(string text) => new DarkCheck { Text = text, ForeColor = Theme.Text, BackColor = Theme.Surface, Margin = new(0, 3, 16, 0) };
+
+    private static Label Line(bool muted = true) => new()
+        { Dock = DockStyle.Fill, AutoEllipsis = true, UseMnemonic = false, Margin = Padding.Empty,
+          TextAlign = ContentAlignment.MiddleLeft, ForeColor = muted ? Theme.Muted : Theme.Text };
+
+    private static Control InputBox(TextBox edit)
+    {
+        var box = new Card { BackColor = Theme.Input, Margin = Padding.Empty, Padding = Padding.Empty };
+        box.Controls.Add(edit);
+        box.Layout += (_, _) => edit.Bounds = new Rectangle(12, (box.Height - edit.PreferredHeight) / 2,
+            Math.Max(1, box.Width - 24), edit.PreferredHeight);
+        edit.GotFocus += (_, _) => { box.BorderColor = Theme.Accent; box.Invalidate(); };
+        edit.LostFocus += (_, _) => { box.BorderColor = Theme.Border; box.Invalidate(); };
+        return box;
+    }
+
     private void SetMode(int mode)
     {
-        captureMode = mode; target = null; overlay.Hide();
+        captureMode = mode;
+        target = null;
+        overlay.Hide();
         for (var i = 0; i < modeButtons.Length; i++) { modeButtons[i].Selected = i == mode; modeButtons[i].Invalidate(); }
-        targets.Enabled = mode != 2; select.Text = mode == 2 ? "Select region" : "Refresh";
-        if (mode == 2) { targets.Items.Clear(); targets.Items.Add("Drag to select a region"); targets.SelectedIndex = 0; UpdateTarget(); }
-        else RefreshTargets();
+        if (mode == 2) SetRegionHint(); else RefreshTargets();
+        UpdateTarget();
     }
-    private void RefreshTargets()
+
+    private void SetRegionHint()
+    {
+        targets.Items.Clear();
+        targets.Items.Add(T("Drag to select a region", "드래그하여 영역 지정"));
+        targets.SelectedIndex = 0;
+    }
+
+    private void RefreshTargets(CaptureTarget? preferred = null)
     {
         targets.Items.Clear();
         if (captureMode == 0)
         {
-            targets.Items.Add(new CaptureTarget("All monitors", SystemInformation.VirtualScreen));
-            foreach (var screen in Screen.AllScreens) targets.Items.Add(new CaptureTarget($"{screen.DeviceName} · {screen.Bounds.Width} × {screen.Bounds.Height}" + (screen.Primary ? " · primary" : ""), screen.Bounds));
+            targets.Items.Add(new CaptureTarget(T("All monitors", "모든 모니터"), SystemInformation.VirtualScreen));
+            foreach (var screen in Screen.AllScreens)
+                targets.Items.Add(new CaptureTarget($"{screen.DeviceName} · {screen.Bounds.Width} × {screen.Bounds.Height}"
+                    + (screen.Primary ? T(" · primary", " · 주 모니터") : ""), screen.Bounds));
         }
         else foreach (var window in Windows.List(Handle)) targets.Items.Add(window);
-        if (targets.Items.Count > 0) targets.SelectedIndex = 0; else { target = null; UpdateTarget(); }
+        var match = targets.Items.OfType<CaptureTarget>().FirstOrDefault(item => preferred is not null &&
+            (item.IsWindow ? item.Handle == preferred.Handle : item.Bounds == preferred.Bounds));
+        if (match is not null) targets.SelectedItem = match;
+        else if (targets.Items.Count > 0) targets.SelectedIndex = 0;
+        else target = null;
+        UpdateTarget();
     }
+
     private void PickRegion()
     {
-        picking = true; overlay.Hide();
+        picking = true;
+        overlay.Hide();
         try
         {
-            using var picker = new RegionPicker();
-            if (picker.ShowDialog(this) == DialogResult.OK) target = new("Selected region", picker.SelectedBounds);
+            using var picker = new RegionPicker(settings.DimRegionPicker);
+            if (picker.ShowDialog(this) == DialogResult.OK) target = new(T("Selected region", "선택 영역"), picker.SelectedBounds);
         }
         finally { picking = false; Activate(); }
         UpdateTarget();
     }
+
     private void UpdateTarget()
     {
         var bounds = target?.Bounds ?? Rectangle.Empty;
         if (target?.IsWindow == true) Windows.TryGetClientBounds(target.Handle, out bounds);
-        targetLabel.Text = target is null ? "Select a region. Recording starts only when you click Record." : $"{bounds.Width} × {bounds.Height}  ·  ({bounds.X}, {bounds.Y})  ·  {target.Label}";
-        start.Text = recorder is null ? "●  Record" : "■  Stop & save";
+        targetLabel.Text = target is null
+            ? captureMode == 2 ? T("No region selected", "지정된 영역 없음") : T("No capture target available", "캡처 가능한 대상 없음")
+            : $"{bounds.Width} × {bounds.Height}  ·  ({bounds.X}, {bounds.Y})  ·  {target.Label}";
+        targets.Enabled = captureMode != 2;
+        select.Text = captureMode == 2 ? T("Select region", "영역 지정") : T("Refresh", "새로 고침");
+        select.Glyph = captureMode == 2 ? "Crop" : "Refresh";
+        start.Text = recorder is null ? T("Record", "녹화") : recorder.IsAnimation ? T("Stop & edit", "종료 후 편집") : T("Stop & save", "종료 후 저장");
+        start.Glyph = recorder is null ? "Record" : "Stop";
         start.Enabled = !busy && (recorder is not null || target is not null);
         UpdateOverlay();
     }
+
     private void UpdateOverlay() => overlay.Update(target, captureMode != 0 && !picking && !closing && WindowState != FormWindowState.Minimized);
+
     private void UpdateFormat()
     {
         UpdateFileNameExample();
-        var animation = format.Text != "MP4"; audio.Enabled = !animation; quality.Enabled = animation;
-        qualityLabel.Text = animation ? $"Quality {quality.Value}% · Higher means sharper" : "MP4 · High-quality H.264 / audio supported";
+        var animation = format.Text != "MP4";
+        audio.Enabled = !animation;
+        formatHint.Text = animation ? T("Trim, crop and set quality after recording", "녹화 후 길이, 크롭, 품질을 편집합니다.")
+            : T("H.264 video with optional system audio", "H.264 영상과 시스템 오디오를 녹화할 수 있습니다.");
     }
+
+    private void UpdateFileNameExample()
+    {
+        try { fileNameExample.Text = T("Example: ", "예시: ") + Path.GetFileName(RecordingFileName.AvailablePath(folder.Text, fileNamePattern.Text, DateTime.Now, format.Text)); }
+        catch (ArgumentException ex) { fileNameExample.Text = ex.Message; }
+        help.SetToolTip(fileNameExample, fileNameExample.Text);
+    }
+
+    private void UpdateFolderTooltip() => help.SetToolTip(folder, folder.Text + "\n" +
+        T("Double-click to open the output folder", "두 번 클릭하면 저장 폴더 열기"));
+
+    private void SetBadge(string text) => badge.Text = text;
+
+    private void SetStatus(string english, string korean)
+    {
+        statusText = (english, korean);
+        status.Text = T(english, korean);
+        help.SetToolTip(status, status.Text);
+    }
+
     private async Task StartRecording()
     {
         if (target is null || busy || recorder is not null) return;
-        busy = true; SetRecordingUi(true); status.Text = "Starting recording…";
+        busy = true;
+        SetRecordingUi(true);
+        SetStatus("Starting recording…", "녹화를 시작하는 중…");
         try
         {
-            await preview.PauseAsync(); recorder = new(Recorder.ResolveFfmpeg(settings.Ffmpeg));
-            await recorder.StartAsync(new(target, (int)fps.Value, format.Text, quality.Value, audio.Checked && format.Text == "MP4", cursor.Checked, folder.Text, fileNamePattern.Text));
-            clock.Restart(); badge.Text = "●  REC"; badge.ForeColor = Color.FromArgb(255, 125, 145);
-            status.Text = "● Recording · Click Stop & save when finished.";
+            recorder = new(Recorder.ResolveFfmpeg(settings.Ffmpeg));
+            await recorder.StartAsync(new(target, (int)fps.Value, format.Text, settings.Quality, audio.Checked && format.Text == "MP4", cursor.Checked, folder.Text, fileNamePattern.Text));
+            clock.Restart();
+            SetBadge(T("Recording", "녹화 중"));
+            SetStatus("Recording", "녹화 중");
         }
         catch (Exception ex)
         {
-            var recovery = recorder?.RecoveryFolder; recorder?.Dispose(); recorder = null; ShowError(ex, recovery); SetRecordingUi(false);
+            var recovery = recorder?.RecoveryFolder;
+            recorder?.Dispose();
+            recorder = null;
+            ShowError(ex, recovery);
+            SetRecordingUi(false);
         }
         finally { busy = false; UpdateTarget(); }
     }
+
     private async Task StopRecording()
     {
         if (recorder is null || busy) return;
-        busy = true; clock.Stop(); start.Enabled = false; badge.Text = "●  SAVING"; badge.ForeColor = Theme.Accent;
-        status.Text = "Saving… GIF / WebP encoding may take a moment.";
-        var current = recorder; string? file = null;
+        var current = recorder;
+        busy = true;
+        clock.Stop();
+        start.Enabled = false;
+        SetBadge(current.IsAnimation ? T("Editing", "편집 중") : T("Saving", "저장 중"));
+        if (current.IsAnimation) SetStatus("Preparing editor…", "편집기를 준비하는 중…");
+        else SetStatus("Saving…", "저장 중…");
         try
         {
-            file = await current.StopAsync();
-            settings.Recordings = settings.Recordings.Prepend(file).Distinct(StringComparer.OrdinalIgnoreCase).Take(100).ToList();
-            status.Text = "Saved · " + Path.GetFileName(file);
+            string? file;
+            if (current.IsAnimation)
+            {
+                await current.FinishCaptureAsync();
+                using var editor = new AnimationEditor(current, settings.Quality);
+                editor.ShowDialog(this);
+                await editor.DrainAsync();
+                file = editor.SavedPath;
+                settings.Quality = editor.Quality;
+                if (editor.PreviewFailed)
+                {
+                    SetStatus("Preview failed. The recording is in the recovery folder.", "미리보기를 열지 못했습니다. 녹화 파일은 복구 폴더에 있습니다.");
+                    return;
+                }
+                current.CleanSession();
+                if (file is null) { SetStatus("Editing cancelled.", "편집을 취소했습니다."); return; }
+            }
+            else file = await current.StopAsync();
+            var name = Path.GetFileName(file);
+            SetStatus("Saved · " + name, "저장 완료 · " + name);
         }
         catch (Exception ex) { ShowError(ex, current.RecoveryFolder); }
         finally
         {
-            current.Dispose(); recorder = null; busy = false; SetRecordingUi(false); UpdateTarget();
+            current.Dispose();
+            recorder = null;
+            busy = false;
+            SetRecordingUi(false);
         }
-        if (file is not null && !closing) await RefreshLibraryAsync(file);
     }
+
     private void SetRecordingUi(bool recording)
     {
-        settingsPanel.Enabled = !recording; gallery.Enabled = !recording; preview.Enabled = !recording; UpdateTarget();
-        if (!recording) { badge.Text = "●  READY"; badge.ForeColor = Theme.Accent; }
-        UpdateLibraryActions();
+        settingsPanel.Enabled = gear.Enabled = !recording;
+        if (!recording) SetBadge(T("Ready", "준비"));
+        UpdateTarget();
     }
-    private void UpdateLibraryActions()
-    {
-        var enabled = selectedFile is not null && File.Exists(selectedFile) && !busy && recorder is null;
-        play.Enabled = more.Enabled = external.Enabled = reveal.Enabled = delete.Enabled = enabled;
-    }
-    private async Task RefreshLibraryAsync(string? preferred = null)
-    {
-        if (IsDisposed || Disposing) return;
-        libraryRefresh?.Cancel(); libraryRefresh?.Dispose(); libraryRefresh = new(); var cancellation = libraryRefresh.Token;
-        foreach (var old in gallery.Controls.Cast<Control>().ToArray()) { gallery.Controls.Remove(old); old.Dispose(); }
-        try
-        {
-            var files = RecordingLibrary.List(folder.Text, settings.Recordings); countLabel.Text = $"{files.Count} files";
-            var cards = new List<(string file, RecordingCard card)>();
-            foreach (var file in files)
-            {
-                var card = new RecordingCard(file); card.Chosen += async (_, _) => { if (recorder is null && !busy) await SelectFileAsync(file); };
-                gallery.Controls.Add(card); cards.Add((file, card));
-            }
-            if (files.Count == 0) gallery.Controls.Add(new Label { Text = "No recordings yet.\nYour recordings will appear here after saving.", AutoSize = true, ForeColor = Theme.Muted, Margin = new(8, 20, 8, 8) });
-            var next = preferred ?? (files.Contains(selectedFile) ? selectedFile : files.FirstOrDefault());
-            if (next is not null) await SelectFileAsync(next); else { selectedFile = null; fileLabel.Text = "No recording selected"; await preview.ClearAsync(); UpdateLibraryActions(); }
-            string ffmpeg; try { ffmpeg = Recorder.ResolveFfmpeg(settings.Ffmpeg); } catch { return; }
-            foreach (var (file, card) in cards)
-            {
-                if (cancellation.IsCancellationRequested || IsDisposed) return;
-                try
-                {
-                    var image = await RecordingLibrary.ThumbnailAsync(ffmpeg, file, cancellation);
-                    if (image is not null && !cancellation.IsCancellationRequested && !card.IsDisposed) card.SetThumbnail(RecordingLibrary.LoadThumbnail(image));
-                }
-                catch (IOException) { }
-            }
-        }
-        catch (Exception ex) { if (!cancellation.IsCancellationRequested && !IsDisposed) status.Text = "Could not load recordings: " + ex.Message; }
-    }
-    private async Task SelectFileAsync(string file)
-    {
-        selectedFile = file; fileLabel.Text = Path.GetFileName(file); UpdateLibraryActions();
-        foreach (var card in gallery.Controls.OfType<RecordingCard>()) { card.BorderColor = card.FilePath == file ? Theme.Accent : Theme.Border; card.Invalidate(); }
-        await preview.LoadAsync(file);
-    }
-    private async Task DeleteSelectedAsync()
-    {
-        var file = selectedFile; if (file is null || recorder is not null || busy) return;
-        if (DarkDialog.Show(this, "Move this recording to the Recycle Bin?\n\n" + Path.GetFileName(file), true) != DialogResult.Yes) return;
-        try
-        {
-            await preview.ClearAsync(); RecordingLibrary.Trash(file); selectedFile = null;
-            settings.Recordings.RemoveAll(f => string.Equals(f, file, StringComparison.OrdinalIgnoreCase));
-            status.Text = "Recording moved to the Recycle Bin."; await RefreshLibraryAsync();
-        }
-        catch (Exception ex) { ShowError(ex); }
-    }
+
     private void SaveSettingsOnExit()
     {
         if (settingsSaved || !persistSettings) return;
-        settingsSaved = true; settings.CaptureMode = captureMode;
+        settingsSaved = true;
+        settings.CaptureMode = captureMode;
         settings.Folder = folder.Text; settings.Format = format.Text; settings.Fps = (int)fps.Value;
-        settings.Quality = quality.Value; settings.Audio = audio.Checked; settings.Cursor = cursor.Checked;
+        settings.Audio = audio.Checked; settings.Cursor = cursor.Checked;
         settings.FileNamePattern = fileNamePattern.Text;
-        try { settings.Save(); } catch (Exception ex) { DarkDialog.Show(this, "Could not save setting.ini: " + ex.Message); }
+        try { settings.Save(); } catch (Exception ex) { DarkDialog.Show(this, T("Could not save setting.ini: ", "설정 파일을 저장하지 못했습니다: ") + ex.Message); }
     }
-    private void SafeAction(Action action) { try { action(); } catch (Exception ex) { ShowError(ex); } }
+
     private void ShowError(Exception ex, string? recovery = null)
     {
-        status.Text = "Error · Check your settings and try again.";
-        DarkDialog.Show(this, ex.Message + (string.IsNullOrEmpty(recovery) ? "" : "\n\nRecovery folder: " + recovery));
+        SetStatus("Recording error. Check your settings.", "녹화 오류가 발생했습니다. 설정을 확인하세요.");
+        DarkDialog.Show(this, ex.Message + (string.IsNullOrEmpty(recovery) ? "" : T("\n\nRecovery folder: ", "\n\n복구 폴더: ") + recovery));
     }
+
     protected override void Dispose(bool disposing)
     {
-        if (disposing && !released) { released = true; fileMenu.Dispose(); fileNameHelp.Dispose(); timer.Dispose(); overlay.Dispose(); libraryRefresh?.Cancel(); libraryRefresh?.Dispose(); libraryRefresh = null; recorder?.Dispose(); recorder = null; }
+        if (disposing && !released)
+        {
+            released = true;
+            help.Dispose();
+            pathMenu.Dispose();
+            timer.Dispose();
+            overlay.Dispose();
+            recorder?.Dispose();
+            recorder = null;
+        }
         base.Dispose(disposing);
     }
-}
-
-internal sealed class RecordingCard : Card
-{
-    private readonly PictureBox image = new() { Dock = DockStyle.Top, Height = 100, SizeMode = PictureBoxSizeMode.Zoom, BackColor = Theme.Background };
-    public string FilePath { get; }
-    public event EventHandler? Chosen;
-    public RecordingCard(string file)
-    {
-        FilePath = file; Size = new(190, 157); Padding = new(8); Margin = new(0, 6, 10, 4); Cursor = Cursors.Hand;
-        image.Image = Theme.Logo(48);
-        var name = new Label { Text = Path.GetFileName(file), Dock = DockStyle.Top, Height = 21, ForeColor = Theme.Text, AutoEllipsis = true };
-        var info = new FileInfo(file);
-        var metadata = new Label { Text = $"{info.LastWriteTime:MM.dd HH:mm} · {info.Length / 1048576.0:0.#} MB · {info.Extension.TrimStart('.').ToUpperInvariant()}", Dock = DockStyle.Top, Height = 18, ForeColor = Theme.Muted, Font = new("Segoe UI", 8), AutoEllipsis = true };
-        Controls.Add(metadata); Controls.Add(name); Controls.Add(image);
-        foreach (Control control in Controls) control.Click += (_, _) => Chosen?.Invoke(this, EventArgs.Empty);
-        Click += (_, _) => Chosen?.Invoke(this, EventArgs.Empty);
-    }
-    public void SetThumbnail(Image bitmap) { var old = image.Image; image.Image = bitmap; old?.Dispose(); }
-    protected override void Dispose(bool disposing) { if (disposing) image.Image?.Dispose(); base.Dispose(disposing); }
 }

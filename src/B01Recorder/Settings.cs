@@ -10,6 +10,9 @@ internal sealed class Settings
     public string Format { get; set; } = "MP4";
     public int Fps { get; set; } = 30;
     public int Quality { get; set; } = 80;
+    public bool DimRegionPicker { get; set; }
+    public UiLanguage Language { get; set; }
+    public ThemeMode ThemeMode { get; set; }
     public bool Audio { get; set; } = true;
     public bool Cursor { get; set; } = true;
     public int CaptureMode { get; set; }
@@ -20,6 +23,7 @@ internal sealed class Settings
     public int WindowWidth { get; set; }
     public int WindowHeight { get; set; }
     public bool WindowMaximized { get; set; }
+    public bool CompactLayout { get; set; }
     public List<string> Recordings { get; set; } = [];
     internal string StoragePath { get; set; } = Path.Combine(AppContext.BaseDirectory, "setting.ini");
 
@@ -50,6 +54,9 @@ internal sealed class Settings
                     case "Format": settings.Format = value; break;
                     case "FrameRate" when int.TryParse(value, out var fps): settings.Fps = Math.Clamp(fps, 1, 120); break;
                     case "Quality" when int.TryParse(value, out var quality): settings.Quality = Math.Clamp(quality, 1, 100); break;
+                    case "DimRegionPicker" when bool.TryParse(value, out var dim): settings.DimRegionPicker = dim; break;
+                    case "Language" when Enum.TryParse<UiLanguage>(value, out var language) && Enum.IsDefined(language): settings.Language = language; break;
+                    case "Theme" when Enum.TryParse<ThemeMode>(value, out var theme) && Enum.IsDefined(theme): settings.ThemeMode = theme; break;
                     case "SystemAudio" when bool.TryParse(value, out var audio): settings.Audio = audio; break;
                     case "CaptureCursor" when bool.TryParse(value, out var cursor): settings.Cursor = cursor; break;
                     case "CaptureMode" when int.TryParse(value, out var mode): settings.CaptureMode = Math.Clamp(mode, 0, 2); break;
@@ -60,6 +67,7 @@ internal sealed class Settings
                     case "WindowWidth" when int.TryParse(value, out var width): settings.WindowWidth = width; break;
                     case "WindowHeight" when int.TryParse(value, out var height): settings.WindowHeight = height; break;
                     case "WindowMaximized" when bool.TryParse(value, out var maximized): settings.WindowMaximized = maximized; break;
+                    case "CompactLayout" when bool.TryParse(value, out var compact): settings.CompactLayout = compact; break;
                     default: if (key.StartsWith("File", StringComparison.Ordinal) && File.Exists(value)) settings.Recordings.Add(value); break;
                 }
             }
@@ -73,6 +81,8 @@ internal sealed class Settings
         text.AppendLine("OutputFolder=" + Folder).AppendLine("Format=" + Format)
             .AppendLine("FrameRate=" + Fps.ToString(CultureInfo.InvariantCulture))
             .AppendLine("Quality=" + Quality.ToString(CultureInfo.InvariantCulture))
+            .AppendLine("DimRegionPicker=" + DimRegionPicker)
+            .AppendLine("Language=" + Language).AppendLine("Theme=" + ThemeMode)
             .AppendLine("SystemAudio=" + Audio).AppendLine("CaptureCursor=" + Cursor)
             .AppendLine("CaptureMode=" + CaptureMode.ToString(CultureInfo.InvariantCulture))
             .AppendLine("FFmpegPath=" + Ffmpeg).AppendLine("FileNamePattern=" + FileNamePattern)
@@ -81,7 +91,7 @@ internal sealed class Settings
             .AppendLine("WindowY=" + WindowY?.ToString(CultureInfo.InvariantCulture))
             .AppendLine("WindowWidth=" + WindowWidth.ToString(CultureInfo.InvariantCulture))
             .AppendLine("WindowHeight=" + WindowHeight.ToString(CultureInfo.InvariantCulture))
-            .AppendLine("WindowMaximized=" + WindowMaximized).AppendLine().AppendLine("[Library]");
+            .AppendLine("WindowMaximized=" + WindowMaximized).AppendLine("CompactLayout=" + CompactLayout).AppendLine().AppendLine("[Library]");
         for (var i = 0; i < Recordings.Count; i++) text.AppendLine($"File{i}={Recordings[i]}");
         File.WriteAllText(StoragePath, text.ToString(), new UTF8Encoding(false));
     }
